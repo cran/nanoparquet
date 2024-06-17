@@ -2,6 +2,8 @@ BROTLI
 CMD
 DuckDB
 GZIP
+Gzip
+LLC
 LZ
 LZO
 MacBook
@@ -9,7 +11,9 @@ ORCID
 PBC
 RLE
 ZSTD
+Zstd
 codec
+difftime
 hms
 nanoparquet's
 schemas

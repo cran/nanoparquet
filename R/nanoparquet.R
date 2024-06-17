@@ -3,25 +3,26 @@
 #' Converts the contents of the named Parquet file to a R data frame.
 #'
 #' @param file Path to a Parquet file.
+#' @param options Nanoparquet options, see [parquet_options()].
 #' @return A `data.frame` with the file's contents.
 #' @export
 #' @seealso See [write_parquet()] to write Parquet files,
 #'   [nanoparquet-types] for the R <-> Parquet type mapping.
 #'   See [parquet_info()], for general information,
-#'   [parquet_columns()] and [parquet_schema()] for information about the
+#'   [parquet_column_types()] and [parquet_schema()] for information about the
 #'   columns, and [parquet_metadata()] for the complete metadata.
 #' @examples
 #' file_name <- system.file("extdata/userdata1.parquet", package = "nanoparquet")
 #' parquet_df <- nanoparquet::read_parquet(file_name)
 #' print(str(parquet_df))
 
-read_parquet <- function(file) {
+read_parquet <- function(file, options = parquet_options()) {
 	file <- path.expand(file)
 	res <- .Call(nanoparquet_read, file)
 	dicts <- res[[2]]
 	types <- res[[3]]
 	res <- res[[1]]
-	if (!identical(getOption("nanoparquet.use_arrow_metadata"), FALSE)) {
+	if (options[["use_arrow_metadata"]]) {
 		res <- apply_arrow_schema(res, file, dicts, types)
 	}
 
@@ -45,7 +46,7 @@ read_parquet <- function(file) {
 
 	# some data.frame dress up
 	attr(res, "row.names") <- c(NA_integer_, as.integer(-1 * length(res[[1]])))
-	class(res) <- c(getOption("nanoparquet.class", "tbl"), "data.frame")
+	class(res) <- c(options[["class"]], "data.frame")
 	res
 }
 
@@ -99,7 +100,8 @@ encodings <- c(
 	DELTA_BINARY_PACKED = 5L,
 	DELTA_LENGTH_BYTE_ARRAY = 6L,
 	DELTA_BYTE_ARRAY = 7L,
-	RLE_DICTIONARY = 8L
+	RLE_DICTIONARY = 8L,
+	BYTE_STREAM_SPLIT = 9L
 )
 
 codecs <- c(
@@ -201,7 +203,7 @@ format_schema_result <- function(sch) {
 #'
 #' @export
 #' @seealso [parquet_info()] for a much shorter summary.
-#'   [parquet_columns()] and [parquet_schema()] for column information.
+#'   [parquet_column_types()] and [parquet_schema()] for column information.
 #'   [read_parquet()] to read, [write_parquet()] to write Parquet files,
 #'   [nanoparquet-types] for the R <-> Parquet type mappings.
 #' @examples
@@ -268,7 +270,7 @@ parquet_metadata <- function(file) {
 # -------------------------------------------------------------------------
 #'
 #' @seealso [parquet_metadata()] to read more metadata,
-#'   [parquet_columns()] to show the columns R would read,
+#'   [parquet_column_types()] to show the columns R would read,
 #'   [parquet_info()] to show only basic information.
 #'   [read_parquet()], [write_parquet()], [nanoparquet-types].
 #' @export
@@ -294,7 +296,7 @@ parquet_schema <- function(file) {
 #'       that created the file. `NA` if not available.
 #'
 #' @seealso [parquet_metadata()] to read more metadata,
-#'   [parquet_columns()] and [parquet_schema()] for column information.
+#'   [parquet_column_types()] and [parquet_schema()] for column information.
 #'   [read_parquet()], [write_parquet()], [nanoparquet-types].
 #' @export
 
@@ -315,12 +317,15 @@ parquet_info <- function(file) {
 	info
 }
 
-#' Parquet file column information
+#' Map between R and Parquet data types
 #'
-#' It includes the leaf columns, i.e. the columns that [read_parquet()]
-#' would read.
+#' This function works two ways. It can map the R types of a data frame to
+#' Parquet types, to see how [write_parquet()] would write out the data
+#' frame. It can also map the types of a Parquet file to R types, to see
+#' how [read_parquet()] would read the file into R.
 #'
-#' @param file Path to a Parquet file.
+#' @param x Path to a Parquet file, or a data frame.
+#' @param options Nanoparquet options, see [parquet_options()].
 #' @return Data frame with columns:
 #'   * `file_name`: file name.
 #'   * `name`: column name.
@@ -341,7 +346,17 @@ parquet_info <- function(file) {
 #'   [read_parquet()], [write_parquet()], [nanoparquet-types].
 #' @export
 
-parquet_columns <- function(file) {
+parquet_column_types <- function(x, options = parquet_options()) {
+	if (is.character(x)) {
+		parquet_column_types_file(x, options)
+	} else if (is.data.frame(x)) {
+		parquet_column_types_df(x, options)
+	} else {
+		stop("`x` must be a file name or a data frame in `parquet_column_types()`")
+	}
+}
+
+parquet_column_types_file <- function(file, options) {
   mtd <- parquet_metadata(file)
 	sch <- mtd$schema
 
@@ -354,16 +369,25 @@ parquet_columns <- function(file) {
 		DOUBLE = "double",
 		FLOAT = "double",
 		INT96 = "POSIXct",
-		FIXED_LENGTH_BYTE_ARRAY = NA,
-		BYTE_ARRAY = "character"
+		FIXED_LEN_BYTE_ARRAY = "raw",
+		BYTE_ARRAY = "raw"
 	)
 
 	# keep leaf columns only, arrow schema is for leaf columns
 	sch <- sch[is.na(sch$num_children) | sch$num_children == 0L, ]
 	sch$r_type <- unname(type_map[sch$type])
 
+	sch$r_type[
+		sch$type == "FIXED_LEN_BYTE_ARRAY" &
+		sch$converted_type == "DECIMAL"] <- "double"
+	sch$r_type[
+		vapply(sch$logical_type, function(x) {
+			!is.null(x$type) && x$type %in% c("STRING", "ENUM", "UUID")
+		}, logical(1)) |
+		sch$converted_type == "UTF8"] <- "character"
+
 	# detected from Arrow schema
-	if (!identical(getOption("nanoparquet.use_arrow_metadata"), FALSE)) {
+	if (options[["use_arrow_metadata"]]) {
 		spec <- if ("ARROW:schema" %in% kv$key) {
 			kv <- mtd$file_meta_data$key_value_metadata[[1]]
 			arrow_find_special(
@@ -398,9 +422,6 @@ parquet_columns <- function(file) {
 	) | sch$converted_type == "TIMESTAMP_MICROS"
 	sch$r_type[poscts] <- "POSIXct"
 
-	sch$r_type[
-		sch$type == "FIXED_LEN_BYTE_ARRAY" &
-		sch$converted_type == "DECIMAL"] <- "double"
 	cols <- c(
 		"file_name",
 		"name",
@@ -412,6 +433,88 @@ parquet_columns <- function(file) {
 	sch[, cols]
 }
 
+# TODO this is duplicated from the C++ code
+
+map_to_parquet_type <- function(x, options) {
+	if (typeof(x) == "integer") {
+		if (inherits(x, "factor")) {
+			list(
+				"BYTE_ARRAY",
+				"factor",
+				structure(list(type = "STRING"), class = "nanoparquet_logical_type")
+			)
+		} else if (inherits(x, "Date")) {
+			list(
+				"INT32",
+				"integer",
+				structure(list(type = "DATE"), class = "nanoparquet_logical_type")
+			)
+		} else if (inherits(x, "hms")) {
+			list(
+				"INT32",
+				"hms",
+				structure(
+					list(type = "TIME", is_adjusted_to_utc = TRUE, unit = "millis"),
+					class = "nanoparquet_logical_type"
+				)
+			)
+		} else {
+			list(
+				"INT32",
+				"integer",
+				structure(
+					list(type = "INT", bit_width = 32, is_signed = TRUE),
+					class = "nanoparquet_logical_type"
+				)
+			)
+		}
+	} else if (typeof(x) == "double") {
+		if (inherits(x, "POSIXct")) {
+			list(
+				"INT64",
+				"POSIXct",
+				structure(
+					list(type = "TIMESTAMP", is_adjusted_to_utc = TRUE, unit = "micros"),
+					class = "nanoparquet_logical_type"
+				)
+			)
+		} else if (inherits(x, "difftime")) {
+			list("INT64", "difftime", NULL)
+		} else {
+			list("DOUBLE", "double", NULL)
+		}
+
+	} else if (typeof(x) == "character") {
+		list(
+			"BYTE_ARRAY",
+			"character",
+			structure(list(type = "STRING"), class = "nanoparquet_logical_type")
+		)
+
+	} else if (typeof(x) == "logical") {
+		list("BOOLEAN", "logical", NULL)
+
+	} else {
+		list(NA_character_, class(x)[[1]], NULL)
+	}
+}
+
+parquet_column_types_df <- function(df, options) {
+	types <- lapply(df, map_to_parquet_type, options)
+	type_tab <- data.frame(
+		file_name = rep(NA_character_, length(df)),
+		name = names(df),
+		type = vapply(types, function(x) x[[1]], ""),
+		r_type = vapply(types, function(x) x[[2]], ""),
+		repetition_type = ifelse(vapply(df, anyNA, TRUE), "OPTIONAL", "REQUIRED"),
+		logical_type = I(unname(lapply(types, function(x) x[[3]])))
+	)
+
+	rownames(type_tab) <- NULL
+	class(type_tab) <- c("tbl", class(type_tab))
+	type_tab
+}
+
 #' Write a data frame to a Parquet file
 #'
 #' Writes the contents of an R data frame into a Parquet file.
@@ -420,30 +523,34 @@ parquet_columns <- function(file) {
 #' [base::enc2utf8()]. It does the same for factor levels.
 #'
 #' @param x Data frame to write.
-#' @param file Path to the output file.
-#' @param compression Compression algorithm to use. Currently only
-#'   `"snappy"` (the default) and `"uncompressed"` are supported.
+#' @param file Path to the output file. If this is the string `":raw:"`,
+#'   then the data frame is written to a memory buffer, and the memory
+#'   buffer is returned as a raw vector.
+#' @param compression Compression algorithm to use. Currently `"snappy"`
+#'   (the default), `"gzip"`, `"zstd"`, and `"uncompressed"` are supported.
 #' @param metadata Additional key-value metadata to add to the file.
 #'   This must be a named character vector, or a data frame with columns
 #'   character columns called `key` and `value`.
-#' @return `NULL`
+#' @param options Nanoparquet options, see [parquet_options()].
+#' @return `NULL`, unless `file` is `":raw:"`, in which case the Parquet
+#'   file is returned as a raw vector.
 #'
 #' @export
 #' @seealso [parquet_metadata()], [read_parquet()].
-#' @examplesIf !nanoparquet:::is_rcmd_check()
+#' @examplesIf FALSE
 #' # add row names as a column, because `write_parquet()` ignores them.
 #' mtcars2 <- cbind(name = rownames(mtcars), mtcars)
 #' write_parquet(mtcars2, "mtcars.parquet")
-#' \dontshow{if (!nanoparquet:::is_rcmd_check()) unlink("mtcars.parquet")}
 
 write_parquet <- function(
 	x,
 	file,
-	compression = c("snappy", "uncompressed"),
-	metadata = NULL) {
+	compression = c("snappy", "gzip", "zstd", "uncompressed"),
+	metadata = NULL,
+	options = parquet_options()) {
 
   file <- path.expand(file)
-	codecs <- c("uncompressed" = 0L, "snappy" = 1L)
+	codecs <- c("uncompressed" = 0L, "snappy" = 1L, "gzip" = 2L, "zstd" = 6L)
 	compression <- codecs[match.arg(compression)]
 	dim <- as.integer(dim(x))
 
@@ -459,7 +566,7 @@ write_parquet <- function(
 		metadata <- list(names(metadata), unname(metadata))
 	}
 
-	if (!identical(getOption("nanoparquet.write_arrow_metadata"), FALSE)) {
+	if (options[["write_arrow_metadata"]]) {
 		if (! "ARROW:schema" %in% metadata[[1]]) {
 			metadata[[1]] <- c(metadata[[1]], "ARROW:schema")
 			metadata[[2]] <- c(metadata[[2]], encode_arrow_schema(x))
@@ -512,7 +619,7 @@ write_parquet <- function(
 	# easier here than calling back to R
 	required <- !vapply(x, anyNA, logical(1))
 
-	invisible(.Call(
+	res <- .Call(
 		nanoparquet_write,
 		x,
 		file,
@@ -520,5 +627,11 @@ write_parquet <- function(
 		compression,
 		metadata,
 		required
-	))
+	)
+
+	if (is.null(res)) {
+		invisible()
+	} else {
+		res
+	}
 }

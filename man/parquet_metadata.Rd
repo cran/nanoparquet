@@ -57,7 +57,7 @@ same file.
 \item \code{type}: low level parquet data type.
 \item \code{encodings}: encodings used to store this chunk. It is a list
 column of character vectors of encoding names. Current possible
-encodings: "PLAIN", "GROUP_VAR_INT", "PLAIN_DICTIONARY", "RLE", "BIT_PACKED", "DELTA_BINARY_PACKED", "DELTA_LENGTH_BYTE_ARRAY", "DELTA_BYTE_ARRAY", "RLE_DICTIONARY".
+encodings: "PLAIN", "GROUP_VAR_INT", "PLAIN_DICTIONARY", "RLE", "BIT_PACKED", "DELTA_BINARY_PACKED", "DELTA_LENGTH_BYTE_ARRAY", "DELTA_BYTE_ARRAY", "RLE_DICTIONARY", "BYTE_STREAM_SPLIT".
 \item \code{path_in_scema}: list column of character vectors. It is simply
 the path from the root node. It is simply the column name for
 flat schemas.
@@ -87,7 +87,7 @@ nanoparquet::parquet_metadata(file_name)
 }
 \seealso{
 \code{\link[=parquet_info]{parquet_info()}} for a much shorter summary.
-\code{\link[=parquet_columns]{parquet_columns()}} and \code{\link[=parquet_schema]{parquet_schema()}} for column information.
+\code{\link[=parquet_column_types]{parquet_column_types()}} and \code{\link[=parquet_schema]{parquet_schema()}} for column information.
 \code{\link[=read_parquet]{read_parquet()}} to read, \code{\link[=write_parquet]{write_parquet()}} to write Parquet files,
 \link{nanoparquet-types} for the R <-> Parquet type mappings.
 }

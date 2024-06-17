@@ -3,18 +3,21 @@
 #include <math.h>
 #include <sstream>
 #include <string>
+#include <numeric>
 
 #include <protocol/TCompactProtocol.h>
 #include <transport/TBufferTransports.h>
 
 #include "snappy/snappy.h"
+#include "miniz/miniz_wrapper.hpp"
+#include "zstd.h"
 #include "nanoparquet.h"
 #include "RleBpDecoder.h"
+#include "DbpDecoder.h"
 
 using namespace std;
 
 using namespace parquet;
-using namespace parquet::format;
 using namespace apache::thrift;
 using namespace apache::thrift::protocol;
 using namespace apache::thrift::transport;
@@ -247,6 +250,7 @@ public:
     case Type::DOUBLE:
       fill_dict<double>();
       break;
+    case Type::FIXED_LEN_BYTE_ARRAY:
     case Type::BYTE_ARRAY:
       // no dict here we use the result set string heap directly
       {
@@ -259,12 +263,16 @@ public:
             result_col
                 .string_heap_chunks[result_col.string_heap_chunks.size() - 1]
                 .get();
-        dict = new Dictionary<char *>(dict_size);
+        dict = new Dictionary<pair<uint32_t, char *>>(dict_size);
 
         for (int32_t dict_index = 0; dict_index < dict_size; dict_index++) {
           uint32_t str_len;
-          memcpy(&str_len, page_buf_ptr, sizeof(str_len));
-          page_buf_ptr += sizeof(str_len);
+          if (result_col.col->type == Type::FIXED_LEN_BYTE_ARRAY) {
+            str_len = result_col.col->schema_element->type_length;
+          } else {
+            memcpy(&str_len, page_buf_ptr, sizeof(str_len));
+            page_buf_ptr += sizeof(str_len);
+          }
 
           if (page_buf_ptr + str_len > page_buf_end_ptr) {
             std::stringstream ss;
@@ -273,10 +281,11 @@ public:
             throw runtime_error(ss.str());
           }
 
-          ((Dictionary<char *> *)dict)->dict[dict_index] = str_ptr;
+          ((Dictionary<pair<uint32_t, char *>> *)dict)->dict[dict_index] =
+            make_pair(str_len, str_ptr);
           // TODO make sure we dont run out of str_ptr
           memcpy(str_ptr, page_buf_ptr, str_len);
-          str_ptr[str_len] = '\0'; // terminate
+          str_ptr[str_len] = '\0'; // terminate, not really needed any more
           str_ptr += str_len + 1;
           page_buf_ptr += str_len;
         }
@@ -294,7 +303,8 @@ public:
   }
 
   void scan_data_page(ResultColumn &result_col, bool has_def_levels) {
-    if (!page_header.__isset.data_page_header ||
+    if ((!page_header.__isset.data_page_header &&
+         !page_header.__isset.data_page_header_v2) ||
         page_header.__isset.dictionary_page_header) {
       std::stringstream ss;
       ss << "Data page header mismatch, invalid Parquet file '" << filename_
@@ -302,30 +312,15 @@ public:
       throw runtime_error(ss.str());
     }
 
-    if (page_header.__isset.data_page_header_v2) {
-      std::stringstream ss;
-      ss << "Data page v2 unsupported, cannot read Parquet file '"
-         << filename_ << "' @ " << __FILE__ << ":" << __LINE__;
-      throw runtime_error(ss.str());
-    }
-
-    auto num_values = page_header.data_page_header.num_values;
+    auto num_values = page_header.type == PageType::DATA_PAGE ?
+      page_header.data_page_header.num_values :
+      page_header.data_page_header_v2.num_values;
 
     // we have to first decode the define levels, if we have them
     if (has_def_levels) {
-      switch (page_header.data_page_header.definition_level_encoding) {
-      case Encoding::RLE: {
-        // read length of define payload, always
-        uint32_t def_length;
-        memcpy(&def_length, page_buf_ptr, sizeof(def_length));
-        page_buf_ptr += sizeof(def_length);
-
-        RleBpDecoder dec((const uint8_t *)page_buf_ptr, def_length, 1);
-        dec.GetBatch<uint8_t>(defined_ptr, num_values);
-
-        page_buf_ptr += def_length;
-      } break;
-      default: {
+      // V2 is always RLE
+      if (page_header.__isset.data_page_header &&
+          page_header.data_page_header.definition_level_encoding != Encoding::RLE) {
         std::stringstream ss;
         ss << "Definition levels have unsupported encoding: "
            << page_header.data_page_header.definition_level_encoding
@@ -333,12 +328,26 @@ public:
            << __FILE__ << ":" << __LINE__;
         throw runtime_error(ss.str());
       }
+      uint32_t def_length;
+      if (page_header.type == PageType::DATA_PAGE) {
+        memcpy(&def_length, page_buf_ptr, sizeof(def_length));
+        page_buf_ptr += sizeof(def_length);
+      } else {
+        def_length = page_header.data_page_header_v2.definition_levels_byte_length;
       }
+
+      RleBpDecoder dec((const uint8_t *)page_buf_ptr, def_length, 1);
+      dec.GetBatch<uint8_t>(defined_ptr, num_values);
+
+      page_buf_ptr += def_length;
     } else {
       std::fill(defined_ptr, defined_ptr + num_values, static_cast<uint8_t>(1));
     }
 
-    switch (page_header.data_page_header.encoding) {
+    Encoding::type encoding = page_header.type == PageType::DATA_PAGE ?
+      page_header.data_page_header.encoding :
+      page_header.data_page_header_v2.encoding;
+    switch (encoding) {
     case Encoding::RLE_DICTIONARY:
     case Encoding::PLAIN_DICTIONARY: // deprecated
       scan_data_page_dict(result_col);
@@ -348,11 +357,31 @@ public:
       scan_data_page_plain(result_col);
       break;
 
+    case Encoding::RLE:
+      scan_data_page_rle(result_col);
+      break;
+
+    case Encoding::DELTA_BINARY_PACKED:
+      scan_data_page_delta_binary_packed(result_col);
+      break;
+
+    case Encoding::DELTA_LENGTH_BYTE_ARRAY:
+      scan_data_page_delta_length_byte_array(result_col);
+      break;
+
+    case Encoding::DELTA_BYTE_ARRAY:
+      scan_data_page_delta_byte_array(result_col);
+      break;
+
+    case Encoding::BYTE_STREAM_SPLIT:
+      scan_data_page_byte_stream_split(result_col);
+      break;
+
     default: {
       std::stringstream ss;
-      ss << "Data page has unsupported encoding "
-         << page_header.data_page_header.encoding << " in Parquet file '"
-         << filename_ << "' @ " << __FILE__ << ":" << __LINE__;
+      ss << "Data page has unsupported encoding " << encoding
+         << " in Parquet file '" << filename_ << "' @ " << __FILE__
+         << ":" << __LINE__;
       throw runtime_error(ss.str());
     }
     }
@@ -363,8 +392,11 @@ public:
 
   template <class T> void fill_values_plain(ResultColumn &result_col) {
     T *result_arr = (T *)result_col.data.ptr;
+    auto num_values = page_header.type == PageType::DATA_PAGE ?
+      page_header.data_page_header.num_values :
+      page_header.data_page_header_v2.num_values;
     for (int32_t val_offset = 0;
-         val_offset < page_header.data_page_header.num_values; val_offset++) {
+         val_offset < num_values; val_offset++) {
 
       if (!defined_ptr[val_offset]) {
         continue;
@@ -390,7 +422,9 @@ public:
     switch (result_col.col->type) {
     case Type::BOOLEAN: {
       bool *result_arr = (bool *)result_col.data.ptr;
-      int32_t nv = page_header.data_page_header.num_values;
+      int32_t nv = page_header.type == PageType::DATA_PAGE ?
+        page_header.data_page_header.num_values :
+        page_header.data_page_header_v2.num_values;
       // current byte position
       int byte_pos = 0;
       for (int32_t idx = 0; idx < nv; idx++) {
@@ -427,11 +461,13 @@ public:
     case Type::FIXED_LEN_BYTE_ARRAY:
     case Type::BYTE_ARRAY: {
       uint32_t str_len = type_len; // in case of FIXED_LEN_BYTE_ARRAY
+      auto num_values = page_header.type == PageType::DATA_PAGE ?
+        page_header.data_page_header.num_values :
+        page_header.data_page_header_v2.num_values;
 
       uint64_t shc_len = page_header.uncompressed_page_size;
       if (result_col.col->type == Type::FIXED_LEN_BYTE_ARRAY) {
-        shc_len += page_header.data_page_header
-                       .num_values; // make space for terminators
+        shc_len += num_values; // make space for terminators
       }
       auto string_heap_chunk = std::unique_ptr<char[]>(new char[shc_len]);
       result_col.string_heap_chunks.push_back(std::move(string_heap_chunk));
@@ -441,7 +477,7 @@ public:
               .get();
 
       for (int32_t val_offset = 0;
-           val_offset < page_header.data_page_header.num_values; val_offset++) {
+           val_offset < num_values; val_offset++) {
 
         if (!defined_ptr[val_offset]) {
           continue;
@@ -461,7 +497,8 @@ public:
           throw runtime_error(ss.str());
         }
 
-        ((char **)result_col.data.ptr)[row_idx] = str_ptr;
+        ((pair<uint32_t, char *>*)result_col.data.ptr)[row_idx] =
+          make_pair(str_len, str_ptr);
         // TODO make sure we dont run out of str_ptr too
         memcpy(str_ptr, page_buf_ptr, str_len);
         str_ptr[str_len] = '\0';
@@ -484,8 +521,11 @@ public:
   template <class T>
   void fill_values_dict(ResultColumn &result_col, uint32_t *offsets) {
     auto result_arr = (T *)result_col.data.ptr;
+    auto num_values = page_header.type == PageType::DATA_PAGE ?
+      page_header.data_page_header.num_values :
+      page_header.data_page_header_v2.num_values;
     for (int32_t val_offset = 0;
-         val_offset < page_header.data_page_header.num_values; val_offset++) {
+         val_offset < num_values; val_offset++) {
       // always unpack because NULLs area also encoded (?)
       auto row_idx = page_start_row + val_offset;
 
@@ -506,7 +546,9 @@ public:
       throw runtime_error(ss.str());
     }
 
-    auto num_values = page_header.data_page_header.num_values;
+    auto num_values = page_header.type == PageType::DATA_PAGE ?
+      page_header.data_page_header.num_values :
+      page_header.data_page_header_v2.num_values;
 
     // num_values is int32, hence all dict offsets have to fit in 32 bit
     auto offsets = unique_ptr<uint32_t[]>(new uint32_t[num_values]);
@@ -536,8 +578,6 @@ public:
     }
 
     switch (result_col.col->type) {
-      // TODO no bools here? I guess makes no sense to use dict...
-
     case Type::INT32:
       fill_values_dict<int32_t>(result_col, offsets.get());
 
@@ -562,15 +602,19 @@ public:
 
       break;
 
+    case Type::FIXED_LEN_BYTE_ARRAY:
     case Type::BYTE_ARRAY: {
-      auto result_arr = (char **)result_col.data.ptr;
+      auto result_arr = (pair<uint32_t, char *>*)result_col.data.ptr;
+      auto num_values = page_header.type == PageType::DATA_PAGE ?
+        page_header.data_page_header.num_values :
+        page_header.data_page_header_v2.num_values;
       for (int32_t val_offset = 0;
-           val_offset < page_header.data_page_header.num_values; val_offset++) {
+           val_offset < num_values; val_offset++) {
         if (defined_ptr[val_offset]) {
           result_arr[page_start_row + val_offset] =
-              ((Dictionary<char *> *)dict)->get(offsets[val_offset]);
+              ((Dictionary<pair<uint32_t, char *>> *)dict)->get(offsets[val_offset]);
         } else {
-          result_arr[page_start_row + val_offset] = nullptr;
+          result_arr[page_start_row + val_offset] = make_pair(0, nullptr);
         }
       }
       break;
@@ -582,6 +626,283 @@ public:
          << filename_ << "' @ " << __FILE__ << ":" << __LINE__;
       throw runtime_error(ss.str());
     }
+    }
+  }
+
+  void scan_data_page_rle(ResultColumn &result_col) {
+    auto num_values = page_header.type == PageType::DATA_PAGE ?
+      page_header.data_page_header.num_values :
+      page_header.data_page_header_v2.num_values;
+    page_buf_ptr += sizeof(uint32_t);
+    auto enc_length = 1;
+    RleBpDecoder dec((const uint8_t *) page_buf_ptr, page_buf_len, enc_length);
+    auto offsets = unique_ptr<bool[]>(new bool[num_values]);
+    uint32_t null_count = 0;
+    for (uint32_t i = 0; i < num_values; i++) {
+      if (!defined_ptr[i]) {
+        null_count++;
+      }
+    }
+    if (null_count > 0) {
+      dec.GetBatchSpaced<bool>(num_values, null_count, defined_ptr,
+                                   offsets.get());
+    } else {
+      dec.GetBatch<bool>(offsets.get(), num_values);
+    }
+
+    bool *result_arr = (bool*) result_col.data.ptr;
+    for (uint32_t val_offset = 0;
+        val_offset < num_values;
+        val_offset++) {
+      auto row_idx = page_start_row + val_offset;
+      if (defined_ptr[val_offset]) {
+        result_arr[row_idx] = offsets[val_offset];
+      }
+    }
+  }
+
+  void scan_data_page_delta_binary_packed(ResultColumn &result_col) {
+    auto num_values = page_header.type == PageType::DATA_PAGE ?
+      page_header.data_page_header.num_values :
+      page_header.data_page_header_v2.num_values;
+    struct buffer buf = {
+      (uint8_t*) page_buf_ptr,
+      (uint32_t) page_header.uncompressed_page_size
+    };
+    page_buf_ptr += page_header.compressed_page_size;
+    switch (result_col.col->type) {
+    case Type::INT32: {
+      int32_t *result_arr = (int32_t *)result_col.data.ptr;
+      DbpDecoder<int32_t, uint32_t> dec(&buf);
+      uint32_t num_non_null_values = dec.size();
+      unique_ptr<int32_t[]> vals(new int32_t[num_non_null_values]);
+      dec.decode(vals.get());
+      for (uint32_t i = 0, j = 0; i < num_values; i++) {
+        if (!defined_ptr[i]) {
+          continue;
+        }
+        auto row_idx = page_start_row + i;
+        result_arr[row_idx] = vals[j++];
+      }
+      break;
+    }
+    case Type::INT64: {
+      int64_t *result_arr = (int64_t *)result_col.data.ptr;
+      DbpDecoder<int64_t, uint64_t> dec(&buf);
+      uint32_t num_non_null_values = dec.size();
+      unique_ptr<int64_t[]> vals(new int64_t[num_non_null_values]);
+      dec.decode(vals.get());
+      for (uint32_t i = 0, j = 0; i < num_values; i++) {
+        if (!defined_ptr[i]) {
+          continue;
+        }
+        auto row_idx = page_start_row + i;
+        result_arr[row_idx] = vals[j++];
+      }
+      break;
+    }
+    default: {
+      throw runtime_error("DELTA_BINARY_PACKED encoding must be INT32 or INT64");
+      break;
+    }
+    }
+  }
+
+  void scan_data_page_delta_length_byte_array(ResultColumn &result_col) {
+    if (result_col.col->type != Type::BYTE_ARRAY) {
+      throw runtime_error(
+        "DELTA_LENGTH_BYTE_ARRAY encoding is only allowed for BYTE_ARRAY columns"
+      );
+    }
+    auto num_values = page_header.type == PageType::DATA_PAGE ?
+      page_header.data_page_header.num_values :
+      page_header.data_page_header_v2.num_values;
+    struct buffer buf = {
+      (uint8_t*) page_buf_ptr,
+      (uint32_t) page_header.uncompressed_page_size
+    };
+    DbpDecoder<int32_t, uint32_t> dec(&buf);
+    uint32_t num_non_null_values = dec.size();
+    unique_ptr<int32_t[]> lengths(new int32_t[num_non_null_values]);
+    uint8_t *bts = dec.decode(lengths.get());
+    uint64_t shc_len = page_header.uncompressed_page_size + num_values;
+    auto string_heap_chunk = std::unique_ptr<char[]>(new char[shc_len]);
+    result_col.string_heap_chunks.push_back(std::move(string_heap_chunk));
+    auto str_ptr = result_col
+      .string_heap_chunks[result_col.string_heap_chunks.size() - 1]
+      .get();
+
+    for (uint32_t i = 0, j = 0; i < num_values; i++) {
+      if (!defined_ptr[i]) {
+        continue;
+      }
+      auto row_idx = page_start_row + i;
+      auto str_len = lengths[j++];
+      if ((const char*) bts + str_len > page_buf_end_ptr) {
+        std::stringstream ss;
+        ss << "Declared string length exceeds payload size, invalid Parquet file "
+           << filename_ << "' @ " << __FILE__ << ":" << __LINE__;
+        throw runtime_error(ss.str());
+      }
+      ((pair<uint32_t, char *>*)result_col.data.ptr)[row_idx] =
+        make_pair(str_len, str_ptr);
+      memcpy(str_ptr, bts, str_len);
+      str_ptr[str_len] = '\0';
+      str_ptr += str_len + 1;
+      bts += str_len;
+    }
+    page_buf_ptr += page_header.compressed_page_size;
+  }
+
+  void scan_data_page_delta_byte_array(ResultColumn &result_col) {
+    if (result_col.col->type != Type::BYTE_ARRAY &&
+        result_col.col->type != Type::FIXED_LEN_BYTE_ARRAY) {
+      throw runtime_error(
+        "DELTA_BYTE_ARRAY encoding is only allowed for BYTE_ARRAY and FIXED_LEN_BYTE_ARRAY columns"
+      );
+    }
+    auto num_values = page_header.type == PageType::DATA_PAGE ?
+      page_header.data_page_header.num_values :
+      page_header.data_page_header_v2.num_values;
+    struct buffer buf = {
+      (uint8_t*) page_buf_ptr,
+      (uint32_t) page_header.uncompressed_page_size
+    };
+    DbpDecoder<int32_t, uint32_t> predec(&buf);
+    uint32_t num_non_null_values = predec.size();
+    unique_ptr<int32_t[]> pre_lengths(new int32_t[num_non_null_values]);
+    unique_ptr<int32_t[]> suf_lengths(new int32_t[num_non_null_values]);
+    uint8_t *sufpos = predec.decode(pre_lengths.get());
+    buf = { sufpos, (uint32_t) ((uint8_t*) page_buf_end_ptr - sufpos) };
+    DbpDecoder<int32_t, uint32_t> sufdec(&buf);
+    uint8_t *bts = sufdec.decode(suf_lengths.get());
+
+    uint64_t shc_len = num_non_null_values; // for trailing zeros
+    for (auto i = 0; i < num_non_null_values; i++) shc_len += pre_lengths[i];
+    for (auto i = 0; i < num_non_null_values; i++) shc_len += suf_lengths[i];
+    auto string_heap_chunk = std::unique_ptr<char[]>(new char[shc_len]);
+    result_col.string_heap_chunks.push_back(std::move(string_heap_chunk));
+    auto str_ptr = result_col
+      .string_heap_chunks[result_col.string_heap_chunks.size() - 1]
+      .get();
+
+    char *prev_str_ptr = nullptr;
+    for (uint32_t i = 0, j = 0; i < num_values; i++) {
+      if (!defined_ptr[i]) {
+        continue;
+      }
+      auto row_idx = page_start_row + i;
+      auto pre_len = pre_lengths[j];
+      if (pre_len > 0 && prev_str_ptr == nullptr) {
+        throw runtime_error("Invalid DELTA_BYTE_ARRAY encoding, first prefix must be zero");
+      }
+      auto suf_len = suf_lengths[j];
+      j++;
+      auto str_len = pre_len + suf_len;
+      if ((const char*) bts + suf_len > page_buf_end_ptr) {
+        std::stringstream ss;
+        ss << "Declared string length exceeds payload size, invalid Parquet file "
+           << filename_ << "' @ " << __FILE__ << ":" << __LINE__;
+        throw runtime_error(ss.str());
+      }
+      ((pair<uint32_t, char *>*)result_col.data.ptr)[row_idx] =
+        make_pair(str_len, str_ptr);
+      if (pre_len > 0) {
+        memcpy(str_ptr, prev_str_ptr, pre_len);
+      }
+      if (suf_len > 0) {
+        memcpy(str_ptr + pre_len, bts, suf_len);
+        bts += suf_len;
+      }
+      str_ptr[str_len] = '\0';
+      prev_str_ptr = str_ptr;
+      str_ptr += str_len + 1;
+    }
+    page_buf_ptr += page_header.compressed_page_size;
+  }
+
+  template <class T> void fill_values_bss(ResultColumn &result_col) {
+    T *result_arr = (T *) result_col.data.ptr;
+    auto num_values = page_header.type == PageType::DATA_PAGE ?
+      page_header.data_page_header.num_values :
+      page_header.data_page_header_v2.num_values;
+    uint32_t num_non_null = 0;
+    for (uint32_t i = 0; i < num_values; i++) {
+      if (defined_ptr[i]) num_non_null++;
+    }
+
+    for (int32_t i = 0, j = 0; i < num_values; i++) {
+      if (!defined_ptr[i]) {
+        continue;
+      }
+
+      auto row_idx = page_start_row + i;
+      T val;
+      uint8_t *bts = (uint8_t *) &val;
+      for (int b = 0; b < sizeof(T); b++) {
+        bts[b] = page_buf_ptr[b * num_non_null + j];
+      }
+      result_arr[row_idx] = val;
+      j++;
+    }
+    page_buf_ptr += page_header.compressed_page_size;
+  }
+
+  void scan_data_page_byte_stream_split(ResultColumn &result_col) {
+    switch (result_col.col->type) {
+    case Type::FLOAT:
+      fill_values_bss<float>(result_col);
+      break;
+    case Type::DOUBLE:
+      fill_values_bss<double>(result_col);
+      break;
+    case Type::INT32:
+      fill_values_bss<int32_t>(result_col);
+      break;
+    case Type::INT64:
+      fill_values_bss<int64_t>(result_col);
+      break;
+    case Type::FIXED_LEN_BYTE_ARRAY: {
+      auto num_values = page_header.type == PageType::DATA_PAGE ?
+        page_header.data_page_header.num_values :
+        page_header.data_page_header_v2.num_values;
+      uint64_t shc_len = page_header.uncompressed_page_size + num_values;
+      auto string_heap_chunk = std::unique_ptr<char[]>(new char[shc_len]);
+      result_col.string_heap_chunks.push_back(std::move(string_heap_chunk));
+      auto str_ptr = result_col
+        .string_heap_chunks[result_col.string_heap_chunks.size() - 1]
+        .get();
+
+      if (page_buf_ptr + num_values * type_len > page_buf_end_ptr) {
+        throw runtime_error("Not enough bytes in BYTE_STREAM_SPLIT data page");
+      }
+
+      uint32_t num_non_null = 0;
+      for (uint32_t i = 0; i < num_values; i++) {
+        if (defined_ptr[i]) num_non_null++;
+      }
+
+      for (uint32_t i = 0, j = 0; i < num_values; i++) {
+        if (!defined_ptr[i]) {
+          continue;
+        }
+
+        auto row_idx = page_start_row + i;
+
+        ((pair<uint32_t, char *>*)result_col.data.ptr)[row_idx] =
+          make_pair(type_len, str_ptr);
+        for (uint32_t b = 0; b < type_len; b++) {
+          str_ptr[b] = page_buf_ptr[b * num_non_null + j];
+        }
+        str_ptr[type_len] = '\0';
+        str_ptr += type_len + 1;
+        j++;
+      }
+      page_buf_ptr += page_header.compressed_page_size;
+      break;
+    }
+    default:
+      throw runtime_error("Invalid data type for BYTE_STREAM_SPLIT encoding");
     }
   }
 
@@ -608,7 +929,7 @@ public:
       break;
     case Type::BYTE_ARRAY:
     case Type::FIXED_LEN_BYTE_ARRAY:
-      result_col.dict.reset((Dictionary<char *> *)dict);
+      result_col.dict.reset((Dictionary<pair<uint32_t, char *>> *)dict);
       break;
     default: {
       std::stringstream ss;
@@ -698,11 +1019,34 @@ void ParquetFile::scan_column(ScanState &state, ResultColumn &result_col) {
     chunk_buf.ptr += page_header_len;
     bytes_to_read -= page_header_len;
 
+    // skip data page v2 repetition levels if we don't need them
+    uint32_t xrep = 0;
+    if (cs.page_header.type == PageType::DATA_PAGE_V2 &&
+        cs.page_header.data_page_header_v2.repetition_levels_byte_length > 0) {
+      xrep = cs.page_header.data_page_header_v2.repetition_levels_byte_length;
+    }
+
     auto payload_end_ptr = chunk_buf.ptr + cs.page_header.compressed_page_size;
 
     ByteBuffer decompressed_buf;
+    CompressionCodec::type codec = chunk.meta_data.codec;
+    if (cs.page_header.__isset.data_page_header_v2 &&
+        cs.page_header.data_page_header_v2.__isset.is_compressed &&
+        ! cs.page_header.data_page_header_v2.is_compressed) {
+      codec = CompressionCodec::UNCOMPRESSED;
+    }
 
-    switch (chunk.meta_data.codec) {
+    // In data page v2 the definition levels are not
+    // compressed. We need to copy these bytes over verbatim.
+    // (The extra repetition levels we skipped already, potentially.)
+    uint32_t xdef = 0;
+    if (has_def_levels &&
+        cs.page_header.type == PageType::DATA_PAGE_V2 &&
+        codec != CompressionCodec::UNCOMPRESSED) {
+      xdef = cs.page_header.data_page_header_v2.definition_levels_byte_length;
+    }
+
+    switch (codec) {
     case CompressionCodec::UNCOMPRESSED:
       cs.page_buf_ptr = chunk_buf.ptr;
       cs.page_buf_len = cs.page_header.compressed_page_size;
@@ -710,14 +1054,15 @@ void ParquetFile::scan_column(ScanState &state, ResultColumn &result_col) {
       break;
     case CompressionCodec::SNAPPY: {
       size_t decompressed_size;
-      snappy::GetUncompressedLength(chunk_buf.ptr,
-                                    cs.page_header.compressed_page_size,
+      snappy::GetUncompressedLength(chunk_buf.ptr + xrep + xdef,
+                                    cs.page_header.compressed_page_size - xrep - xdef,
                                     &decompressed_size);
-      decompressed_buf.resize(decompressed_size + 1);
+      decompressed_buf.resize(decompressed_size + 1 + xdef);
+      memcpy(decompressed_buf.ptr, chunk_buf.ptr + xrep, xdef);
 
-      auto res = snappy::RawUncompress(chunk_buf.ptr,
-                                       cs.page_header.compressed_page_size,
-                                       decompressed_buf.ptr);
+      auto res = snappy::RawUncompress(chunk_buf.ptr + xrep + xdef,
+                                       cs.page_header.compressed_page_size - xrep - xdef,
+                                       decompressed_buf.ptr + xdef);
       if (!res) {
         std::stringstream ss;
         ss << "Decompression failure, possibly corrupt Parquet file '"
@@ -726,7 +1071,49 @@ void ParquetFile::scan_column(ScanState &state, ResultColumn &result_col) {
       }
 
       cs.page_buf_ptr = (char *)decompressed_buf.ptr;
-      cs.page_buf_len = cs.page_header.uncompressed_page_size;
+      cs.page_buf_len = cs.page_header.uncompressed_page_size - xrep;
+
+      break;
+    }
+    case CompressionCodec::GZIP: {
+      miniz::MiniZStream gzst;
+      decompressed_buf.resize(cs.page_header.uncompressed_page_size + 1 + xdef);
+      memcpy(decompressed_buf.ptr, chunk_buf.ptr + xrep, xdef);
+
+      // throws on error
+      gzst.Decompress(
+        (const char*) chunk_buf.ptr + xrep + xdef,
+        cs.page_header.compressed_page_size - xrep - xdef,
+        (char*) decompressed_buf.ptr + xdef,
+        cs.page_header.uncompressed_page_size - xrep - xdef
+      );
+
+      cs.page_buf_ptr = (char *)decompressed_buf.ptr;
+      cs.page_buf_len = cs.page_header.uncompressed_page_size - xrep;
+
+      break;
+    }
+    case CompressionCodec::ZSTD: {
+      decompressed_buf.resize(cs.page_header.uncompressed_page_size + 1 + xdef);
+      memcpy(decompressed_buf.ptr, chunk_buf.ptr + xrep, xdef);
+
+      size_t res = zstd::ZSTD_decompress(
+        decompressed_buf.ptr + xdef,
+        cs.page_header.uncompressed_page_size - xrep - xdef,
+        chunk_buf.ptr + xrep + xdef,
+        cs.page_header.compressed_page_size - xrep - xdef
+      );
+
+  		if (zstd::ZSTD_isError(res) ||
+          res != (size_t) cs.page_header.uncompressed_page_size - xrep -xdef) {
+        std::stringstream ss;
+        ss << "Zstd decompression failure, possibly corrupt Parquet file '"
+           << filename << "' @ " << __FILE__ << ":" << __LINE__;
+        throw runtime_error(ss.str());
+  		}
+
+      cs.page_buf_ptr = (char *)decompressed_buf.ptr;
+      cs.page_buf_len = cs.page_header.uncompressed_page_size - xrep;
 
       break;
     }
@@ -746,15 +1133,10 @@ void ParquetFile::scan_column(ScanState &state, ResultColumn &result_col) {
       cs.scan_dict_page(result_col);
       break;
 
-    case PageType::DATA_PAGE: {
+    case PageType::DATA_PAGE:
+    case PageType::DATA_PAGE_V2: {
       cs.scan_data_page(result_col, has_def_levels);
       break;
-    }
-    case PageType::DATA_PAGE_V2: {
-      std::stringstream ss;
-      ss << "v2 data page format is not supported in Parquet file '"
-         << filename << "' @ " << __FILE__ << ":" << __LINE__;
-      throw runtime_error(ss.str());
     }
 
     default:
@@ -795,7 +1177,7 @@ void ParquetFile::initialize_column(ResultColumn &col, uint64_t num_rows) {
     col.data.resize(sizeof(double) * num_rows, false);
     break;
   case Type::BYTE_ARRAY:
-    col.data.resize(sizeof(char *) * num_rows, false);
+    col.data.resize(sizeof(pair<uint32_t, char *>) * num_rows, false);
     break;
 
   case Type::FIXED_LEN_BYTE_ARRAY: {
@@ -807,7 +1189,7 @@ void ParquetFile::initialize_column(ResultColumn &col, uint64_t num_rows) {
          << filename << "' @ " << __FILE__ << ":" << __LINE__;
       throw runtime_error(ss.str());
     }
-    col.data.resize(num_rows * sizeof(char *), false);
+    col.data.resize(num_rows * sizeof(pair<uint32_t, char *>), false);
     break;
   }
 
@@ -849,7 +1231,7 @@ void ParquetFile::initialize_result(ResultChunk &result) {
   }
 }
 
-pair<parquet::format::PageHeader, int64_t>
+pair<parquet::PageHeader, int64_t>
 ParquetFile::read_page_header(int64_t pos) {
   uint32_t len = 2048;  // guessing, but this must be enough
   // Avoid going EOF, file_size is set when we open the file

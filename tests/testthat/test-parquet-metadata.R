@@ -1,4 +1,5 @@
 test_that("parquet_metadata", {
+  withr::local_envvar(NANOPARQUET_FORCE_PLAIN = "1")
   df <- test_df()
   mkdirp(tmpdir <- tempfile())
   tmp <- file.path(tmpdir, "test.parquet")
@@ -83,12 +84,12 @@ test_that("key-value metadata", {
   )
 })
 
-test_that("parquet_columns", {
+test_that("parquet_column_types", {
   library(pillar)
   expect_snapshot({
-    parquet_columns(test_path("data/enum.parquet"))
-    parquet_columns(test_path("data/factor.parquet"))
-    parquet_columns(test_path("data/decimals.parquet"))
+    parquet_column_types(test_path("data/enum.parquet"))
+    parquet_column_types(test_path("data/factor.parquet"))
+    parquet_column_types(test_path("data/decimals.parquet"))
   })
 
   # some special types
@@ -101,8 +102,8 @@ test_that("parquet_columns", {
   tmp <- tempfile(fileext = ".parquet")
   write_parquet(d, tmp)
   expect_snapshot({
-    parquet_columns(tmp)[-1]
-    parquet_columns(tmp)$r_type
+    parquet_column_types(tmp)[-1]
+    parquet_column_types(tmp)$r_type
   })
 })
 

@@ -7,24 +7,30 @@
 write_parquet(
   x,
   file,
-  compression = c("snappy", "uncompressed"),
-  metadata = NULL
+  compression = c("snappy", "gzip", "zstd", "uncompressed"),
+  metadata = NULL,
+  options = parquet_options()
 )
 }
 \arguments{
 \item{x}{Data frame to write.}
 
-\item{file}{Path to the output file.}
+\item{file}{Path to the output file. If this is the string \code{":raw:"},
+then the data frame is written to a memory buffer, and the memory
+buffer is returned as a raw vector.}
 
-\item{compression}{Compression algorithm to use. Currently only
-\code{"snappy"} (the default) and \code{"uncompressed"} are supported.}
+\item{compression}{Compression algorithm to use. Currently \code{"snappy"}
+(the default), \code{"gzip"}, \code{"zstd"}, and \code{"uncompressed"} are supported.}
 
 \item{metadata}{Additional key-value metadata to add to the file.
 This must be a named character vector, or a data frame with columns
 character columns called \code{key} and \code{value}.}
+
+\item{options}{Nanoparquet options, see \code{\link[=parquet_options]{parquet_options()}}.}
 }
 \value{
-\code{NULL}
+\code{NULL}, unless \code{file} is \code{":raw:"}, in which case the Parquet
+file is returned as a raw vector.
 }
 \description{
 Writes the contents of an R data frame into a Parquet file.
@@ -34,11 +40,10 @@ Writes the contents of an R data frame into a Parquet file.
 \code{\link[base:Encoding]{base::enc2utf8()}}. It does the same for factor levels.
 }
 \examples{
-\dontshow{if (!nanoparquet:::is_rcmd_check()) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
+\dontshow{if (FALSE) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
 # add row names as a column, because `write_parquet()` ignores them.
 mtcars2 <- cbind(name = rownames(mtcars), mtcars)
 write_parquet(mtcars2, "mtcars.parquet")
-\dontshow{if (!nanoparquet:::is_rcmd_check()) unlink("mtcars.parquet")}
 \dontshow{\}) # examplesIf}
 }
 \seealso{

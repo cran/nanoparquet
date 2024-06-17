@@ -3,7 +3,7 @@
 <!-- badges: start -->
 [![R-CMD-check](https://github.com/r-lib/nanoparquet/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/r-lib/nanoparquet/actions/workflows/R-CMD-check.yaml)
 [![CRAN status](https://www.r-pkg.org/badges/version/nanoparquet)](https://cran.r-project.org/package=nanoparquet)
-[![](http://cranlogs.r-pkg.org/badges/nanoparquet)](https://dgrtwo.shinyapps.io/cranview/)
+[![](http://cranlogs.r-pkg.org/badges/nanoparquet)](https://r-pkg.org/pkg/nanoparquet)
 <!-- badges: end -->
 
 `nanoparquet` is a reader and writer for a common subset of Parquet files.
@@ -15,16 +15,14 @@
 * Can write many R data types, including factors and temporal types
   to Parquet.
 * Completely dependency free.
-* Supports Snappy compression.
+* Supports Snappy, Gzip and Zstd compression.
 
 ## Limitations:
 
 * Nested Parquet types are not supported.
 * Some Parquet logical types are not supported: `FLOAT16`, `INTERVAL`,
   `UNKNOWN`.
-* The `FIXED_LEN_BYTE_ARRAY` Parquet type is not supported, unless it
-  represents a supported logical type.
-* Only Snappy compression is supported.
+* Only Snappy, Gzip and Zstd compression is supported.
 * Encryption is not supported.
 * Being single-threaded and not fully optimized, nanoparquet is probably
   not suited well for large data sets. It should be fine for a couple of
@@ -48,6 +46,12 @@ Call `read_parquet()` to read a Parquet file:
 df <- nanoparquet::read_parquet("example.parquet")
 ```
 
+To see the columns of a Parquet file and how their types are mapped to
+R types by `read_parquet()`, call `parquet_column_types()` first:
+```r
+nanoparquet::parquet_column_types("example.parquet")
+```
+
 Folders of similar-structured Parquet files (e.g. produced by Spark)
 can be read like this:
 
@@ -65,14 +69,20 @@ Call `write_parquet()` to write a data frame to a Parquet file:
 nanoparquet::write_parquet(mtcars, "mtcars.parquet")
 ```
 
+To see how the columns of the data frame will be mapped to Parquet types
+by `write_parquet()`, call `parquet_column_types()` first:
+```r
+nanoparquet::parquet_column_types(mtcars)
+```
+
 ### Inspect
 
-Call `parquet_info()`, `parquet_columns()`, `parquet_schema()` or
+Call `parquet_info()`, `parquet_column_types()`, `parquet_schema()` or
 `parquet_metadata()` to see various kinds of metadata from a Parquet
 file:
 
 * `parquet_info()` shows a basic summary of the file.
-* `parquet_columns()` shows the leaf columns, these are are the ones
+* `parquet_column_types()` shows the leaf columns, these are are the ones
   that `read_parquet()` reads into R.
 * `parquet_schema()` shows all columns, including non-leaf columns.
 * `parquet_metadata()` shows the most complete metadata information:
@@ -81,7 +91,7 @@ file:
 
 ```r
 nanoparquet::parquet_info("mtcars.parquet")
-nanoparquet::parquet_columns("mtcars.parquet")
+nanoparquet::parquet_column_types("mtcars.parquet")
 nanoparquet::parquet_schema("mtcars.parquet")
 nanoparquet::parquet_metadata("mtcars.parquet")
 ```
@@ -90,6 +100,8 @@ If you find a file that should be supported but isn't, please open an
 issue here with a link to the file.
 
 ## Options
+
+See also `?parquet_options()`.
 
 * `nanoparquet.class`: extra class to add to data frames returned by
   `read_parquet()`. If it is not defined, the default is `"tbl"`,

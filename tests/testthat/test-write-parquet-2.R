@@ -1,4 +1,5 @@
 test_that("REQ PLAIN", {
+  withr::local_envvar(NANOPARQUET_FORCE_PLAIN = "1")
   withr::local_envvar(NANOPARQUEST_PAGE_SIZE = "8192") # 8k pages
   tmp <- tempfile(fileext = ".parquet")
   on.exit(unlink(tmp), add = TRUE)
@@ -29,6 +30,7 @@ test_that("REQ PLAIN", {
 })
 
 test_that("OPT PLAIN", {
+  withr::local_envvar(NANOPARQUET_FORCE_PLAIN = "1")
   withr::local_envvar(NANOPARQUEST_PAGE_SIZE = "8192") # 8k pages
   tmp <- tempfile(fileext = ".parquet")
   on.exit(unlink(tmp), add = TRUE)
@@ -58,7 +60,7 @@ test_that("OPT PLAIN", {
   expect_equal(as.data.frame(read_parquet(tmp)), d)
 })
 
-test_that("REQ RLE", {
+test_that("REQ RLE_DICT", {
   withr::local_envvar(NANOPARQUEST_PAGE_SIZE = "8192") # 8k pages
   tmp <- tempfile(fileext = ".parquet")
   on.exit(unlink(tmp), add = TRUE)
@@ -81,7 +83,7 @@ test_that("REQ RLE", {
   expect_equal(as.data.frame(read_parquet(tmp)), d)
 })
 
-test_that("OPT RLE", {
+test_that("OPT RLE_DICT", {
   withr::local_envvar(NANOPARQUEST_PAGE_SIZE = "8192") # 8k pages
   tmp <- tempfile(fileext = ".parquet")
   on.exit(unlink(tmp), add = TRUE)
@@ -102,4 +104,36 @@ test_that("OPT RLE", {
   pgs <- parquet_pages(tmp)
   expect_equal(sum(pgs$num_values[pgs$page_type == "DATA_PAGE"]), nrow(d))
   expect_equal(as.data.frame(read_parquet(tmp)), d)
+})
+
+test_that("write_parquet() to memory", {
+  d <- test_df(missing = TRUE)
+  tmp <- tempfile(fileext = ".parquet")
+  on.exit(unlink(tmp), add = TRUE)
+
+  pm <- write_parquet(d, ":raw:")
+  write_parquet(d, tmp)
+  pm2 <- readBin(tmp, "raw", file.size(tmp))
+
+  expect_equal(pm, pm2)
+})
+
+test_that("gzip compression", {
+  d <- test_df(missing = TRUE)
+  tmp <- tempfile(fileext = ".parquet")
+  on.exit(unlink(tmp), add = TRUE)
+
+  write_parquet(d, tmp, compression = "gzip")
+  expect_equal(read_parquet_page(tmp, 4L)$codec, "GZIP")
+  expect_equal(read_parquet(tmp), d);
+})
+
+test_that("zstd compression", {
+  d <- test_df(missing = TRUE)
+  tmp <- tempfile(fileext = ".parquet")
+  on.exit(unlink(tmp), add = TRUE)
+
+  write_parquet(d, tmp, compression = "zstd")
+  expect_equal(read_parquet_page(tmp, 4L)$codec, "ZSTD")
+  expect_equal(read_parquet(tmp), d);
 })

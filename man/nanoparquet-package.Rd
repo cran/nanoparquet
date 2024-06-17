@@ -4,9 +4,9 @@
 \name{nanoparquet-package}
 \alias{nanoparquet}
 \alias{nanoparquet-package}
-\title{nanoparquet: Read Parquet Files}
+\title{nanoparquet: Read and Write 'Parquet' Files}
 \description{
-Self-sufficient reader and writer for flat Parquet files. Can read most Parquet data types. Can write many R data types, including factors and temporal types. Supports Snappy compression.
+Self-sufficient reader and writer for flat 'Parquet' files. Can read most 'Parquet' data types. Can write many 'R' data types, including factors and temporal types. See docs for limitations.
 }
 \details{
 \code{nanoparquet} is a reader and writer for a common subset of Parquet files.
@@ -17,7 +17,7 @@ Self-sufficient reader and writer for flat Parquet files. Can read most Parquet 
 \item Can write many R data types, including factors and temporal types
 to Parquet.
 \item Completely dependency free.
-\item Supports Snappy compression.
+\item Supports Snappy, Gzip and Zstd compression.
 }
 }
 
@@ -26,9 +26,7 @@ to Parquet.
 \item Nested Parquet types are not supported.
 \item Some Parquet logical types are not supported: \code{FLOAT16}, \code{INTERVAL},
 \code{UNKNOWN}.
-\item The \code{FIXED_LEN_BYTE_ARRAY} Parquet type is not supported, unless it
-represents a supported logical type.
-\item Only Snappy compression is supported.
+\item Only Snappy, Gzip and Zstd compression is supported.
 \item Encryption is not supported.
 \item Being single-threaded and not fully optimized, nanoparquet is probably
 not suited well for large data sets. It should be fine for a couple of
@@ -53,6 +51,12 @@ Call \code{read_parquet()} to read a Parquet file:
 \if{html}{\out{<div class="sourceCode r">}}\preformatted{df <- nanoparquet::read_parquet("example.parquet")
 }\if{html}{\out{</div>}}
 
+To see the columns of a Parquet file and how their types are mapped to
+R types by \code{read_parquet()}, call \code{parquet_column_types()} first:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{nanoparquet::parquet_column_types("example.parquet")
+}\if{html}{\out{</div>}}
+
 Folders of similar-structured Parquet files (e.g. produced by Spark)
 can be read like this:
 
@@ -69,16 +73,22 @@ Call \code{write_parquet()} to write a data frame to a Parquet file:
 
 \if{html}{\out{<div class="sourceCode r">}}\preformatted{nanoparquet::write_parquet(mtcars, "mtcars.parquet")
 }\if{html}{\out{</div>}}
+
+To see how the columns of the data frame will be mapped to Parquet types
+by \code{write_parquet()}, call \code{parquet_column_types()} first:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{nanoparquet::parquet_column_types(mtcars)
+}\if{html}{\out{</div>}}
 }
 
 \subsection{Inspect}{
 
-Call \code{parquet_info()}, \code{parquet_columns()}, \code{parquet_schema()} or
+Call \code{parquet_info()}, \code{parquet_column_types()}, \code{parquet_schema()} or
 \code{parquet_metadata()} to see various kinds of metadata from a Parquet
 file:
 \itemize{
 \item \code{parquet_info()} shows a basic summary of the file.
-\item \code{parquet_columns()} shows the leaf columns, these are are the ones
+\item \code{parquet_column_types()} shows the leaf columns, these are are the ones
 that \code{read_parquet()} reads into R.
 \item \code{parquet_schema()} shows all columns, including non-leaf columns.
 \item \code{parquet_metadata()} shows the most complete metadata information:
@@ -87,7 +97,7 @@ file.
 }
 
 \if{html}{\out{<div class="sourceCode r">}}\preformatted{nanoparquet::parquet_info("mtcars.parquet")
-nanoparquet::parquet_columns("mtcars.parquet")
+nanoparquet::parquet_column_types("mtcars.parquet")
 nanoparquet::parquet_schema("mtcars.parquet")
 nanoparquet::parquet_metadata("mtcars.parquet")
 }\if{html}{\out{</div>}}
@@ -99,6 +109,8 @@ issue here with a link to the file.
 }
 
 \subsection{Options}{
+
+See also \code{?parquet_options()}.
 \itemize{
 \item \code{nanoparquet.class}: extra class to add to data frames returned by
 \code{read_parquet()}. If it is not defined, the default is \code{"tbl"},
@@ -141,6 +153,11 @@ Other contributors:
   \item Google Inc. [copyright holder]
   \item Apache Software Foundation [copyright holder]
   \item Posit Software, PBC [copyright holder]
+  \item RAD Game Tools [copyright holder]
+  \item Valve Software [copyright holder]
+  \item Valve Software [copyright holder]
+  \item Tenacious Software LLC [copyright holder]
+  \item Facebook, Inc. [copyright holder]
 }
 
 }

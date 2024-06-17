@@ -4,10 +4,12 @@
 \alias{read_parquet}
 \title{Read a Parquet file into a data frame}
 \usage{
-read_parquet(file)
+read_parquet(file, options = parquet_options())
 }
 \arguments{
 \item{file}{Path to a Parquet file.}
+
+\item{options}{Nanoparquet options, see \code{\link[=parquet_options]{parquet_options()}}.}
 }
 \value{
 A \code{data.frame} with the file's contents.
@@ -24,6 +26,6 @@ print(str(parquet_df))
 See \code{\link[=write_parquet]{write_parquet()}} to write Parquet files,
 \link{nanoparquet-types} for the R <-> Parquet type mapping.
 See \code{\link[=parquet_info]{parquet_info()}}, for general information,
-\code{\link[=parquet_columns]{parquet_columns()}} and \code{\link[=parquet_schema]{parquet_schema()}} for information about the
+\code{\link[=parquet_column_types]{parquet_column_types()}} and \code{\link[=parquet_schema]{parquet_schema()}} for information about the
 columns, and \code{\link[=parquet_metadata]{parquet_metadata()}} for the complete metadata.
 }

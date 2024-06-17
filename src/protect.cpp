@@ -47,6 +47,11 @@ SEXP wrapped_mkchar_utf8(void *data) {
   return Rf_mkCharCE(*c, CE_UTF8);
 }
 
+SEXP wrapped_mkchar_len_utf8(void *data) {
+  struct safe_mkchar_len_data *c = (struct safe_mkchar_len_data*) data;
+  return Rf_mkCharLenCE(c->c, c->len, CE_UTF8);
+}
+
 SEXP wrapped_mkstring(void *data) {
   const char **c = (const char **) data;
   return Rf_mkString(*c);
@@ -67,6 +72,11 @@ SEXP wrapped_scalarlogical(void *data) {
   return Rf_ScalarLogical(*n);
 }
 
+SEXP wrapped_scalarstring(void *data) {
+  SEXP *x = (SEXP*) data;
+  return Rf_ScalarString(*x);
+}
+
 SEXP wrapped_mknamed_vec(void *data) {
   const char ***rdata = (const char ***) data;
   return Rf_mkNamed(VECSXP, *rdata);
@@ -75,4 +85,10 @@ SEXP wrapped_mknamed_vec(void *data) {
 SEXP wrapped_setattrib(void *data) {
   struct safe_setattrib_data *rdata = (struct safe_setattrib_data *) data;
   return Rf_setAttrib(rdata->x, rdata->sym, rdata->val);
+}
+
+SEXP wrapped_xlengthgets(void *data) {
+  struct safe_xlengthgets_data *rdata =
+    (struct safe_xlengthgets_data *) data;
+  return Rf_xlengthgets(rdata->x, rdata->len);
 }

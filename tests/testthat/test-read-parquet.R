@@ -238,3 +238,168 @@ test_that("read difftime", {
     as.data.frame(d2)
   })
 })
+
+test_that("RLE BOOLEAN", {
+  tmp <- tempfile(fileext = ".parquet")
+  on.exit(unlink(tmp), add = TRUE)
+
+  d <- data.frame(
+    l = c(
+      logical(30),
+      !logical(5),
+      logical(20),
+      !logical(30)
+    )
+  )
+
+  write_parquet(d, tmp)
+  expect_equal(
+    unclass(parquet_metadata(tmp)$column_chunks$encodings),
+    list("RLE")
+  )
+
+  expect_equal(as.data.frame(read_parquet(tmp)), d)
+
+  # larger DF
+
+  d <- data.frame(
+    l = c(
+      logical(runif(1) * 3000),
+      !logical(runif(1) * 50),
+      logical(runif(1) * 2000),
+      !logical(runif(1) * 3000)
+    )
+  )
+
+  write_parquet(d, tmp)
+  expect_equal(
+    unclass(parquet_metadata(tmp)$column_chunks$encodings),
+    list("RLE")
+  )
+
+  expect_equal(as.data.frame(read_parquet(tmp)), d)
+})
+
+test_that("read GZIP compressed files", {
+  pf <- test_path("data/gzip.parquet")
+  expect_snapshot({
+    as.data.frame(read_parquet(pf))
+  })
+})
+
+test_that("V2 data pages", {
+  pf <- test_path("data/parquet_go.parquet")
+  expect_snapshot({
+    as.data.frame(read_parquet(pf))
+  })
+})
+
+test_that("V2 data page with missing values", {
+  skip_on_cran()
+  pf <- test_path("data/duckdb-bug1589.parquet")
+  expect_equal(
+    as.data.frame(read_parquet(pf)),
+    as.data.frame(arrow::read_parquet(pf))
+  )
+})
+
+test_that("Tricky V2 data page", {
+  # has repetition levels to be ignored and uncompressed
+  # definition levels
+  pf <- test_path("data/rle_boolean_encoding.parquet")
+  expect_snapshot({
+    as.data.frame(read_parquet(pf))
+  })
+})
+
+test_that("zstd", {
+  pf <- test_path("data/zstd.parquet")
+  expect_true(all(parquet_metadata(pf)$column_chunks$codec == "ZSTD"))
+  pf2 <- test_path("data/gzip.parquet")
+  expect_equal(read_parquet(pf), read_parquet(pf2))
+})
+
+test_that("zstd with data page v2", {
+  pf <- test_path("data/zstd-v2.parquet")
+  expect_true(all(parquet_metadata(pf)$column_chunks$codec == "ZSTD"))
+  expect_true(
+    all(parquet_pages(pf)$page_type %in% c("DICTIONARY_PAGE", "DATA_PAGE_V2"))
+  )
+  pf2 <- test_path("data/gzip.parquet")
+  expect_equal(read_parquet(pf), read_parquet(pf2))
+})
+
+test_that("DELTA_BIANRY_PACKED encoding", {
+  suppressPackageStartupMessages(library(bit64))
+  pf <- test_path("data/dbp-int32.parquet")
+  expect_snapshot({
+    parquet_metadata(pf)$column_chunks$encodings
+    read_parquet(pf)
+  })
+
+  pf2 <- test_path("data/dbp-int32-missing.parquet")
+  expect_snapshot({
+    parquet_metadata(pf2)$column_chunks$encodings
+    read_parquet(pf2)
+  })
+
+  pf3 <- test_path("data/dbp-int64.parquet")
+  expect_snapshot({
+    parquet_metadata(pf3)$column_chunks$encodings
+    read_parquet(pf3)
+  })
+})
+
+test_that("UUID columns", {
+  pf <- test_path("data/uuid-arrow.parquet")
+  expect_snapshot({
+    as.data.frame(read_parquet(pf))
+  })
+})
+
+test_that("DELTA_LENGTH_BYTE_ARRAY encoding", {
+  pf <- test_path("data/delta_length_byte_array.parquet")
+  dlba <- read_parquet(pf)
+  expect_snapshot({
+    as.data.frame(dlba)[1:10,]
+    rle(nchar(dlba$FRUIT))
+  })
+})
+
+test_that("DELTA_BYTE_ARRAY encoding", {
+  skip_on_cran()
+  pf <- test_path("data/delta_byte_array.parquet")
+  dba <- read_parquet(pf)
+  expect_snapshot({
+    as.data.frame(dba)[1:5,]
+  })
+  expect_equal(
+    as.data.frame(arrow::read_parquet(pf)),
+    as.data.frame(dba)
+  )
+})
+
+test_that("BYTE_STREAM_SPLIT encoding", {
+  skip_on_cran()
+  pf <- test_path("data/byte_stream_split.parquet")
+  bss <- read_parquet(pf)
+  expect_snapshot({
+    as.data.frame(bss)[1:5,]
+  })
+  expect_equal(
+    as.data.frame(arrow::read_parquet(pf)),
+    as.data.frame(bss)
+  )
+})
+
+test_that("More BYTE_STREAM_SPLIT", {
+  skip_on_cran()
+  pf <- test_path("data/byte_stream_split_extended.gzip.parquet")
+  bss <- read_parquet(pf)
+  expect_snapshot({
+    as.data.frame(bss)[1:5,]
+  })
+  for (i in 1:7) {
+    expect_equal(bss[[2*i-1]], bss[[2*i]])
+  }
+})

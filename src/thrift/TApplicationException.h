@@ -21,6 +21,7 @@
 #define _THRIFT_TAPPLICATIONEXCEPTION_H_ 1
 
 #include <cstdint>
+
 #include <thrift/Thrift.h>
 
 namespace apache {

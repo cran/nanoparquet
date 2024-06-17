@@ -43,12 +43,15 @@ SEXP wrapped_strsxp(void *len);
 SEXP wrapped_vecsxp(void *len);
 SEXP wrapped_mknamed_vec(void *data);
 SEXP wrapped_mkchar(void *data);
-SEXP wrapped_mkchar_utf8(void *date);
+SEXP wrapped_mkchar_utf8(void *data);
+SEXP wrapped_mkchar_len_utf8(void *data, int len);
 SEXP wrapped_mkstring(void *data);
 SEXP wrapped_scalarinteger(void *data);
 SEXP wrapped_scalarreal(void *data);
 SEXP wrapped_scalarlogical(void *data);
+SEXP wrapped_scalarstring(void *data);
 SEXP wrapped_setattrib(void *data);
+SEXP wrapped_xlengthgets(void *data);
 
 inline SEXP safe_allocvector_raw(R_xlen_t len, SEXP *uwt) {
   return R_UnwindProtect(wrapped_rawsxp, &len, throw_error, uwt, *uwt);
@@ -82,6 +85,16 @@ inline SEXP safe_mkchar_utf8(const char *c, SEXP *uwt) {
   return R_UnwindProtect(wrapped_mkchar_utf8, &c, throw_error, uwt, *uwt);
 }
 
+struct safe_mkchar_len_data {
+  char *c;
+  int len;
+};
+
+inline SEXP safe_mkchar_len_utf8(const char *c, int len, SEXP *uwt) {
+  struct safe_mkchar_len_data d = { (char*) c, len };
+  return R_UnwindProtect(wrapped_mkchar_utf8, &d, throw_error, uwt, *uwt);
+}
+
 inline SEXP safe_mkstring(const char *c, SEXP *uwt) {
   return R_UnwindProtect(wrapped_mkstring, &c, throw_error, uwt, *uwt);
 }
@@ -98,6 +111,10 @@ inline SEXP safe_scalarlogical(int n, SEXP *uwt) {
   return R_UnwindProtect(wrapped_scalarlogical, &n, throw_error, uwt, *uwt);
 }
 
+inline SEXP safe_scalarstring(SEXP x, SEXP *uwt) {
+  return R_UnwindProtect(wrapped_scalarstring, &x, throw_error, uwt, *uwt);
+}
+
 inline SEXP safe_mknamed_vec(const char **names, SEXP *uwt) {
   return R_UnwindProtect(wrapped_mknamed_vec, &names, throw_error, uwt, *uwt);
 }
@@ -111,4 +128,14 @@ struct safe_setattrib_data {
 inline SEXP safe_setattrib(SEXP x, SEXP sym, SEXP val, SEXP *uwt) {
   struct safe_setattrib_data d = { x, sym, val };
   return R_UnwindProtect(wrapped_setattrib, &d, throw_error, uwt, *uwt);
+}
+
+struct safe_xlengthgets_data {
+  SEXP x;
+  R_xlen_t len;
+};
+
+inline SEXP safe_xlengthgets(SEXP x, R_xlen_t len, SEXP *uwt) {
+  struct safe_xlengthgets_data d = { x, len };
+  return R_UnwindProtect(wrapped_xlengthgets, &d, throw_error, uwt, *uwt);
 }
