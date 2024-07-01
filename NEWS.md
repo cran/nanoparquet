@@ -1,3 +1,7 @@
+# nanoparquet 0.3.1
+
+* This version fixes a `write_parquet()` crash (#73).
+
 # nanoparquet 0.3.0
 
 * `read_parquet()` type mapping changes:
