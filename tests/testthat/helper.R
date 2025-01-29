@@ -25,21 +25,17 @@ test_df <- function(tibble = FALSE, factor = FALSE, missing = FALSE) {
   df
 }
 
-test_package_root <- function() {
-  skip_if_not_installed("rprojroot")
-  x <- tryCatch(
-    rprojroot::find_package_root_file(),
-    error = function(e) NULL)
+test_write <- function(d, schema = NULL, encoding = NULL) {
+  tmp <- tempfile(fileext = ".parquet")
+  on.exit(unlink(tmp), add = TRUE)
+  schema1 <- if (!is.null(schema)) parquet_schema(schema)
+  write_parquet(d, tmp, schema = schema1, encoding = encoding)
 
-  if (!is.null(x)) return(x)
-
-  pkg <- testthat::testing_package()
-  x <- tryCatch(
-    rprojroot::find_package_root_file(
-      path = file.path("..", "..", "00_pkg_src", pkg)),
-    error = function(e) NULL)
-
-  if (!is.null(x)) return(x)
-
-  stop("Cannot find package root")
+  expect_snapshot({
+    schema
+    encoding
+    read_parquet_metadata(tmp)[["column_chunks"]][["encodings"]]
+    as.data.frame(read_parquet_pages(tmp))[, c("page_type", "encoding")]
+    as.data.frame(read_parquet(tmp))
+  })
 }

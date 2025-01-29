@@ -39,9 +39,9 @@
 #' @seealso [read_parquet_page()] to read a page.
 #' @examples
 #' file_name <- system.file("extdata/userdata1.parquet", package = "nanoparquet")
-#' nanoparquet:::parquet_pages(file_name)
+#' nanoparquet:::read_parquet_pages(file_name)
 
-parquet_pages <- function(file) {
+read_parquet_pages <- function(file) {
 	file <- path.expand(file)
 	res <- .Call(nanoparquet_read_pages, file)
 	res$encoding <- names(encodings)[res$encoding + 1L]
@@ -59,9 +59,9 @@ parquet_pages <- function(file) {
 #'
 #' @param file Path to a Parquet file.
 #' @param offset Integer offset of the start of the page in the file.
-#'   See [parquet_pages()] for a list of all pages and their offsets.
+#'   See [read_parquet_pages()] for a list of all pages and their offsets.
 #' @return Named list. Many entries correspond to the columns of
-#'   the result of [parquet_pages()]. Additional entries are:
+#'   the result of [read_parquet_pages()]. Additional entries are:
 #'   * `codec`: compression codec. Possible values:
 #'   * `has_repetition_levels`: whether the page has repetition levels.
 #'   * `has_definition_levels`: whether the page has definition levels.
@@ -83,10 +83,10 @@ parquet_pages <- function(file) {
 #'     is the same as `compressed_data`.
 #'
 #' @keywords internal
-#' @seealso [parquet_pages()] for a summary of all pages.
+#' @seealso [read_parquet_pages()] for a summary of all pages.
 #' @examplesIf Sys.getenv("IN_PKGDOWN") == "true"
 #' file_name <- system.file("extdata/userdata1.parquet", package = "nanoparquet")
-#' nanoparquet:::parquet_pages(file_name)
+#' nanoparquet:::read_parquet_pages(file_name)
 #' options(max.print = 100)  # otherwise long raw vector
 #' nanoparquet:::read_parquet_page(file_name, 4L)
 
@@ -103,28 +103,27 @@ read_parquet_page <- function(file, offset) {
 	res$data_type <- names(type_names)[res$data_type + 1L]
 	res$repetition_type <- names(repetition_types)[res$repetition_type + 1L]
 	res$compressed_data <- res$data
-	skip <- 0L
 	copy <- 0L
 	if (res$page_type == "DATA_PAGE_V2") {
 		if (!is.na(res$repetition_levels_byte_length)) {
-			skip <- res$repetition_levels_byte_length
+			copy <- copy + res$repetition_levels_byte_length
 		}
 		if (!is.na(res$definition_levels_byte_length)) {
-			copy <- res$definition_levels_byte_length
+			copy <- copy + res$definition_levels_byte_length
 		}
 	}
 	if (res$codec == "SNAPPY") {
 		res$data <- c(
 			if (copy > 0) res$data[1:copy],
-			snappy_uncompress(res$data[(skip+copy+1L):length(res$data)])
+			snappy_uncompress(res$data[(copy+1L):length(res$data)])
 		)
 	} else if (res$codec == "GZIP") {
 		res$compressed_data <- res$data
 		res$data <- c(
 			if (copy > 0) res$data[1:copy],
 			gzip_uncompress(
-				res$data[(skip+copy+1L):length(res$data)],
-				res$uncompressed_page_size - skip - copy
+				res$data[(copy+1L):length(res$data)],
+				res$uncompressed_page_size - copy
 			)
 		)
 	} else if (res$codec == "ZSTD") {
@@ -132,8 +131,8 @@ read_parquet_page <- function(file, offset) {
 		res$data <- c(
 			if (copy > 0) res$data[1:copy],
 			zstd_uncompress(
-				res$data[(skip+copy+1L):length(res$data)],
-				res$uncompressed_page_size - skip - copy
+				res$data[(copy+1L):length(res$data)],
+				res$uncompressed_page_size - copy
 			)
 		)
 	} else if (res$codec == "UNCOMPRESSED") {
@@ -242,8 +241,8 @@ dict_encode <- function(x, n = length(x)) {
 	.Call(nanoparquet_create_dict, x, n)
 }
 
-dict_encode_idx <- function(x) {
-	.Call(nanoparquet_create_dict_idx, x)
+dict_encode_idx <- function(x, from = 1L, until = length(x) + 1L ) {
+	.Call(nanoparquet_create_dict_idx, x, from - 1L, until - 1L, sys.call())
 }
 
 lgl_avg_run_length <- function(x, n = length(x)) {

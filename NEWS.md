@@ -1,3 +1,87 @@
+# nanoparquet 0.4.0
+
+* API changes:
+
+  - `parquet_schema()` is now called `read_parquet_schema()`. The new
+    `parquet_schema()` function falls back to `read_parquet_schema()` if
+    it is called with a single string argument, with a warning.
+
+  - `parquet_info()` is now called `read_parquet_info()`. `parquet_info(`
+    still works for now, with a warning.
+
+  - `parquet_metadata()` is now called `read_parquet_metadata()`.
+    `parquet_metadata()` still works, with a warning.
+
+  - `parquet_column_types()` is now deprecated, and issues a warning. Use
+    `read_parquet_schema()` or the new `infer_parquet_schema()` function
+    instead.
+
+* Other improvements:
+
+  - The new `parquet_schema()` function creates a Parquet schema from
+    scratch. You can use this schema as the new `schema` argument of
+    `write_parquet()`, to specify how the columns of a data frame should
+    be mapped to Parquet types.
+
+  - New `append_parquet()` function to append a data frame to an
+    existing Parquet file.
+
+  - New `col_select` argument for `read_parquet()` to read a subset of
+    columns from a Parquet file.
+
+  - `write_parquet()` can now write multiple row groups. By default it puts
+    at most 10 million rows into a single row group. You can choose the
+    row groups manually with the `row_groups` argument.
+
+  - `write_parquet()` now writes minimum and maximum values per row group
+    for most types. See `?parquet_options()` for turning this off. It also
+    writes out the number of non-missing values.
+
+  - Newly supported type conversions in `write_parquet()` via the
+    schema argument:
+
+    - `integer` to `INT64`,
+    - `integer` to `INT96`,
+    - `double` to `INT96`,
+    - `double` to `FLOAT`,
+    - `character` to `BYTE_ARRAY`,
+    - `character` to `FIXED_LEN_BYTE_ARRAY`,
+    - `character` to `ENUM`,
+    - `factor` to `ENUM`.
+    - `integer` to `DECIMAL`, `INT32`,
+    - `integer` to `DECIMAL`, `INT64`,
+    - `double` to `DECIMAL`, `INT32`,
+    - `double` to `DECIMAL`, `INT64`,
+    - `integer` to `INT(8, *)`, `INT(16, *)`, `INT(32, signed)`,
+    - `double` to `INT(*, *)`,
+    - `character` to `UUID`,
+    - `double` to `FLOAT16`,
+    - `list` of `raw` vectors to `BYTE_ARRAY`,
+    - `list` of `raw` vectors to `FIXED_LEN_BYTE_ARRAY`.
+
+* `write_parquet()` can now write version 2 data pages. The default is
+  still version 1, but it might change in the future.
+
+* `write_parquet(file = ":raw:")` now works correctly for larger data
+  frames (#77).
+
+* New `compression_level` option to select the compression level
+  manually. See `?parquet_options` for details. (#91).
+
+* `read_parquet()` can now read from an R connection (#71).
+
+* `read_parquet()` now reads `DECIMAL` values correctly from `INT32`
+  and `INT64` columns if their `scale` is not zero.
+
+* `read_parquet()` now reads `JSON` columns as character vectors, as
+  documented.
+
+* `read_parquet()` now reads the `FLOAT16` logical type as a real (double)
+  vector.
+
+* The `class` argument of `parquet_options()` and the `nanoparquet.class`
+  option now work again (#104).
+
 # nanoparquet 0.3.1
 
 * This version fixes a `write_parquet()` crash (#73).

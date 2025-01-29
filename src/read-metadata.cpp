@@ -1,15 +1,18 @@
 #include "lib/nanoparquet.h"
 
 #include <Rdefines.h>
+
 #include "protect.h"
+#include "RParquetReader.h"
 
 using namespace nanoparquet;
 using namespace std;
 
 extern "C" {
 
-// Does not throw C++ exceptions, so we can wrap it
-SEXP convert_logical_type_(parquet::LogicalType ltype) {
+extern SEXP nanoparquet_call;
+
+SEXP rf_convert_logical_type(parquet::LogicalType ltype) noexcept {
   SEXP rtype = R_NilValue;
   int prot = 0;
   if (ltype.__isset.STRING) {
@@ -52,11 +55,11 @@ SEXP convert_logical_type_(parquet::LogicalType ltype) {
     SET_VECTOR_ELT(rtype, 0, Rf_mkString("TIME"));
     SET_VECTOR_ELT(rtype, 1, Rf_ScalarLogical(ltype.TIME.isAdjustedToUTC));
     if (ltype.TIME.unit.__isset.MILLIS) {
-      SET_VECTOR_ELT(rtype, 2, Rf_mkString("millis"));
+      SET_VECTOR_ELT(rtype, 2, Rf_mkString("MILLIS"));
     } else if (ltype.TIME.unit.__isset.MICROS) {
-      SET_VECTOR_ELT(rtype, 2, Rf_mkString("micros"));
+      SET_VECTOR_ELT(rtype, 2, Rf_mkString("MICROS"));
     } else if (ltype.TIME.unit.__isset.NANOS) {
-      SET_VECTOR_ELT(rtype, 2, Rf_mkString("nanos"));
+      SET_VECTOR_ELT(rtype, 2, Rf_mkString("NANOS"));
     } else {
       SET_VECTOR_ELT(rtype, 2, R_NaString);
     }
@@ -66,11 +69,11 @@ SEXP convert_logical_type_(parquet::LogicalType ltype) {
     SET_VECTOR_ELT(rtype, 0, Rf_mkString("TIMESTAMP"));
     SET_VECTOR_ELT(rtype, 1, Rf_ScalarLogical(ltype.TIMESTAMP.isAdjustedToUTC));
     if (ltype.TIMESTAMP.unit.__isset.MILLIS) {
-      SET_VECTOR_ELT(rtype, 2, Rf_mkString("millis"));
+      SET_VECTOR_ELT(rtype, 2, Rf_mkString("MILLIS"));
     } else if (ltype.TIMESTAMP.unit.__isset.MICROS) {
-      SET_VECTOR_ELT(rtype, 2, Rf_mkString("micros"));
+      SET_VECTOR_ELT(rtype, 2, Rf_mkString("MICROS"));
     } else if (ltype.TIMESTAMP.unit.__isset.NANOS) {
-      SET_VECTOR_ELT(rtype, 2, Rf_mkString("nanos"));
+      SET_VECTOR_ELT(rtype, 2, Rf_mkString("NANOS"));
     } else {
       SET_VECTOR_ELT(rtype, 2, R_NaString);
     }
@@ -95,6 +98,11 @@ SEXP convert_logical_type_(parquet::LogicalType ltype) {
     rtype = PROTECT(Rf_mkNamed(VECSXP, nms)); prot++;
     SET_VECTOR_ELT(rtype, 0, Rf_mkString("MAP"));
 
+  } else if (ltype.__isset.FLOAT16) {
+    const char *nms[] = { "type", "" };
+    rtype = PROTECT(Rf_mkNamed(VECSXP, nms)); prot++;
+    SET_VECTOR_ELT(rtype, 0, Rf_mkString("FLOAT16"));
+
   } else {
     const char *nms[] = { "type", "" };
     rtype = PROTECT(Rf_mkNamed(VECSXP, nms)); prot++;
@@ -110,24 +118,9 @@ SEXP convert_logical_type_(parquet::LogicalType ltype) {
   return rtype;
 }
 
-SEXP convert_logical_type_wrapper(void *data) {
-  parquet::LogicalType *ltype = (parquet::LogicalType*) data;
-  return convert_logical_type_(*ltype);
-}
-
-SEXP convert_logical_type(parquet::LogicalType ltype, SEXP *uwt) {
-  return R_UnwindProtect(
-    convert_logical_type_wrapper,
-    &ltype,
-    throw_error,
-    uwt,
-    *uwt
-  );
-}
-
 SEXP convert_key_value_metadata(const parquet::FileMetaData &fmd) {
   SEXP uwtoken = PROTECT(R_MakeUnwindCont());
-  R_API_START();
+  R_API_START(R_NilValue);
   auto kvsize =
     fmd.__isset.key_value_metadata ? fmd.key_value_metadata.size() : 0;
   const char *kv_nms[] = { "key", "value", "" };
@@ -168,7 +161,7 @@ SEXP convert_schema(const char *cfile_name,
   };
 
   SEXP uwtoken = PROTECT(R_MakeUnwindCont());
-  R_API_START();
+  R_API_START(R_NilValue);
 
   uint64_t nc = schema.size();
   SEXP columns = PROTECT(safe_mknamed_vec(col_nms, &uwtoken));
@@ -208,7 +201,7 @@ SEXP convert_schema(const char *cfile_name,
     INTEGER(converted_type)[idx] =
     sch.__isset.converted_type ? sch.converted_type : NA_INTEGER;
     if (sch.__isset.logicalType) {
-      SET_VECTOR_ELT(logical_type, idx, convert_logical_type(sch.logicalType, &uwtoken));
+      SET_VECTOR_ELT(logical_type, idx, rf_convert_logical_type(sch.logicalType));
     }
     INTEGER(num_children)[idx] =
       sch.__isset.num_children ? sch.num_children : NA_INTEGER;
@@ -237,7 +230,7 @@ SEXP convert_row_groups(const char *cfile_name,
   };
 
   SEXP uwtoken = PROTECT(R_MakeUnwindCont());
-  R_API_START();
+  R_API_START(R_NilValue);
 
   auto nrgs = rgs.size();
   SEXP rrgs = PROTECT(safe_mknamed_vec(nms, &uwtoken));
@@ -292,13 +285,18 @@ SEXP convert_column_chunks(const char *file_name,
     "data_page_offset",
     "index_page_offset",
     "dictionary_page_offset",
-    // TODO: statistics
+    "null_count",
+    "min_value",
+    "max_value",
+    "is_min_value_exact",
+    "is_max_value_exact",
+    // TODO: more statistics
     // TODO: encoding_stats
     ""
   };
 
   SEXP uwtoken = PROTECT(R_MakeUnwindCont());
-  R_API_START();
+  R_API_START(R_NilValue);
 
   int nccs = 0;
   for (auto i = 0; i < rgs.size(); i++) {
@@ -325,6 +323,11 @@ SEXP convert_column_chunks(const char *file_name,
   SET_VECTOR_ELT(rccs, 16, safe_allocvector_real(nccs, &uwtoken));  // data_page_offset
   SET_VECTOR_ELT(rccs, 17, safe_allocvector_real(nccs, &uwtoken));  // index_page_offset
   SET_VECTOR_ELT(rccs, 18, safe_allocvector_real(nccs, &uwtoken));  // dictionary_page_offset
+  SET_VECTOR_ELT(rccs, 19, safe_allocvector_real(nccs, &uwtoken));  // statistics.null_count
+  SET_VECTOR_ELT(rccs, 20, safe_allocvector_vec(nccs, &uwtoken));   // statistics.min_value
+  SET_VECTOR_ELT(rccs, 21, safe_allocvector_vec(nccs, &uwtoken));   // statistics.max_value
+  SET_VECTOR_ELT(rccs, 22, safe_allocvector_lgl(nccs, &uwtoken));   // statistics.is_min_value_exact
+  SET_VECTOR_ELT(rccs, 23, safe_allocvector_lgl(nccs, &uwtoken));   // statistics.is_max_value_exact
 
   SEXP rfile_name = PROTECT(safe_mkchar(file_name, &uwtoken));
 
@@ -366,6 +369,25 @@ SEXP convert_column_chunks(const char *file_name,
         cmd.__isset.index_page_offset ? cmd.index_page_offset : NA_REAL;
       REAL(VECTOR_ELT(rccs, 18))[idx] =
         cmd.__isset.dictionary_page_offset ? cmd.dictionary_page_offset : NA_REAL;
+      REAL(VECTOR_ELT(rccs, 19))[idx] =
+        cmd.__isset.statistics && cmd.statistics.__isset.null_count ?
+        cmd.statistics.null_count : NA_REAL;
+      if (cmd.__isset.statistics && cmd.statistics.__isset.min_value) {
+        size_t vl = cmd.statistics.min_value.size();
+        SET_VECTOR_ELT(VECTOR_ELT(rccs, 20), idx, safe_allocvector_raw(vl, &uwtoken));
+        memcpy(RAW(VECTOR_ELT(VECTOR_ELT(rccs, 20), idx)), cmd.statistics.min_value.data(), vl);
+      }
+      if (cmd.__isset.statistics && cmd.statistics.__isset.max_value) {
+        size_t vl = cmd.statistics.max_value.size();
+        SET_VECTOR_ELT(VECTOR_ELT(rccs, 21), idx, safe_allocvector_raw(vl, &uwtoken));
+        memcpy(RAW(VECTOR_ELT(VECTOR_ELT(rccs, 21), idx)), cmd.statistics.max_value.data(), vl);
+      }
+      LOGICAL(VECTOR_ELT(rccs, 22))[idx] =
+        cmd.__isset.statistics && cmd.statistics.__isset.is_min_value_exact ?
+        cmd.statistics.is_min_value_exact : NA_LOGICAL;
+      LOGICAL(VECTOR_ELT(rccs, 23))[idx] =
+        cmd.__isset.statistics && cmd.statistics.__isset.is_max_value_exact ?
+        cmd.statistics.is_max_value_exact : NA_LOGICAL;
 
       idx++;
     }
@@ -382,10 +404,10 @@ SEXP nanoparquet_read_metadata(SEXP filesxp) {
   }
 
   SEXP uwtoken = PROTECT(R_MakeUnwindCont());
-  R_API_START();
+  R_API_START(R_NilValue);
 
   const char *fname = CHAR(STRING_ELT(filesxp, 0));
-  ParquetFile f(fname);
+  RParquetReader f(fname);
 
   const char *res_nms[] = {
     "file_meta_data",
@@ -396,7 +418,7 @@ SEXP nanoparquet_read_metadata(SEXP filesxp) {
     };
   SEXP res = PROTECT(safe_mknamed_vec(res_nms, &uwtoken));
 
-  parquet::FileMetaData fmd = f.file_meta_data;
+  parquet::FileMetaData fmd = f.file_meta_data_;
   const char *fmd_nms[] = {
     "file_name",
     "version",
@@ -434,11 +456,11 @@ SEXP nanoparquet_read_schema(SEXP filesxp) {
     Rf_error("nanoparquet_read: Need single filename parameter");
   }
 
-  R_API_START();
+  R_API_START(R_NilValue);
   SEXP cfname = PROTECT(STRING_ELT(filesxp, 0));
   const char *fname = CHAR(cfname);
-  ParquetFile f(fname);
-  parquet::FileMetaData fmd = f.file_meta_data;
+  RParquetReader f(fname);
+  parquet::FileMetaData fmd = f.file_meta_data_;
   UNPROTECT(1);
   return convert_schema(fname, fmd.schema);
   R_API_END();

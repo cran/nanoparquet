@@ -8,6 +8,8 @@
 
 extern "C" {
 
+extern SEXP nanoparquet_call;
+
 SEXP nanoparquet_rle_decode_int(SEXP x, SEXP bit_width, SEXP includes_length,
                                 SEXP length) {
   uint8_t *buf = (uint8_t *)RAW(x);
@@ -24,7 +26,7 @@ SEXP nanoparquet_rle_decode_int(SEXP x, SEXP bit_width, SEXP includes_length,
   }
 
   SEXP uwtoken = PROTECT(R_MakeUnwindCont());
-  R_API_START();
+  R_API_START(R_NilValue);
   SEXP res = PROTECT(safe_allocvector_int(num_values, &uwtoken));
   RleBpDecoder decoder(buf, len, INTEGER(bit_width)[0]);
   decoder.GetBatch((uint32_t *)INTEGER(res), num_values);
@@ -39,13 +41,19 @@ SEXP nanoparquet_rle_encode_int(SEXP x, SEXP bit_width) {
   uint8_t bw = INTEGER(bit_width)[0];
 
   SEXP uwtoken = PROTECT(R_MakeUnwindCont());
-  R_API_START();
+  R_API_START(R_NilValue);
   size_t os = MaxRleBpSize(input, input_len, bw);
-  SEXP res = PROTECT(safe_allocvector_raw(os, &uwtoken));
+  // Over-allocate, so we can report errors, because the main purpose
+  // of this function is testing
+  SEXP res = PROTECT(safe_allocvector_raw(os * 2, &uwtoken));
   uint8_t *output = (uint8_t *) RAW(res);
   size_t rs = RleBpEncode(input, input_len, bw, output, os);
 
-  if (rs < os) {
+  if (rs > os) {
+    Rf_error("RLE integer overflow by %d bytes", (int) (rs - os));
+  }
+
+  if (rs < os * 2) {
     res = Rf_lengthgets(res, rs);
   }
 
@@ -57,7 +65,7 @@ SEXP nanoparquet_rle_encode_int(SEXP x, SEXP bit_width) {
 SEXP nanoparquet_dbp_decode_int32(SEXP x) {
   struct buffer buf = { RAW(x), (uint32_t) Rf_xlength(x) };
   SEXP uwtoken = PROTECT(R_MakeUnwindCont());
-  R_API_START();
+  R_API_START(R_NilValue);
   DbpDecoder<int32_t, uint32_t> dbp(&buf);
   R_xlen_t size = dbp.size();
   SEXP res = PROTECT(safe_allocvector_int(size, &uwtoken));
@@ -75,7 +83,7 @@ SEXP nanoparquet_dbp_encode_int32(SEXP x) {
 SEXP nanoparquet_dbp_decode_int64(SEXP x) {
   struct buffer buf = { RAW(x), (uint32_t) Rf_xlength(x) };
   SEXP uwtoken = PROTECT(R_MakeUnwindCont());
-  R_API_START();
+  R_API_START(R_NilValue);
   DbpDecoder<int64_t, uint64_t> dbp(&buf);
   R_xlen_t size = dbp.size();
   SEXP res = PROTECT(safe_allocvector_real(size, &uwtoken));
@@ -95,7 +103,7 @@ SEXP nanoparquet_dbp_encode_int64(SEXP x) {
 SEXP nanoparquet_unpack_bits_int32(SEXP x, SEXP bit_width, SEXP n) {
   int cn = INTEGER(n)[0];
   SEXP uwtoken = PROTECT(R_MakeUnwindCont());
-  R_API_START();
+  R_API_START(R_NilValue);
   SEXP res = PROTECT(safe_allocvector_int(cn, &uwtoken));
   unpack_bits<uint32_t>(
     RAW(x),

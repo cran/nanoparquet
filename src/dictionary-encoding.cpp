@@ -3,9 +3,12 @@
 #include <cstdint>
 #include <cmath>
 #include <iostream>
+#include <cstring>
 
 #include <Rdefines.h>
 #include "protect.h"
+
+extern SEXP nanoparquet_call;
 
 struct void_ptr_hash {
   inline size_t operator()(const void* p) const {
@@ -66,21 +69,48 @@ uint64_t create_dict(T* values, uint64_t len, T naval) {
   return n;
 }
 
-uint64_t create_dict_ptr_idx(void** values, int *dict, int *idx,
-                             uint64_t len, void *naval) {
+static inline bool STR_LESS(SEXP sc, SEXP set) {
+  const char *c = CHAR(sc), *et = CHAR(set);
+  size_t l = strlen(c), el = strlen(et);
+  if (l == 0) return el > 0;
+  if (el == 0) return false;
+  int res = memcmp(c, et, l < el ? l : el);
+  return res < 0 || (res == 0 && l < el);
+}
+
+static inline bool STR_MORE(SEXP sc, SEXP set) {
+  const char *c = CHAR(sc), *et = CHAR(set);
+  size_t l = strlen(c), el = strlen(et);
+  if (l == 0) return false;
+  if (el == 0) return true;
+  int res = memcmp(c, et, l < el ? l : el);
+  return res > 0 || (res == 0 && l > el);
+}
+
+uint64_t create_dict_str_idx(const SEXP* values, int *dict, int *idx,
+                             uint64_t len, SEXP naval, SEXP &minval,
+                             SEXP &maxval, bool &hasminmax) {
   std::unordered_map<void*, int, void_ptr_hash> mm;
   mm.reserve(len * 2);
-  void **begin = values;
-  void **end = begin + len;
+  SEXP *begin = (SEXP*) values;
+  SEXP *end = (SEXP*) begin + len;
   int n = 0;
+
+  hasminmax = false;
 
   for (int i = 0; begin < end; begin++, i++) {
     if (*begin == naval) {
       idx[i] = NA_INTEGER;
       continue;
     }
+    if (!hasminmax) {
+      hasminmax = true;
+      minval = maxval = *begin;
+    }
     auto it = mm.find(*begin);
     if (it == mm.end()) {
+      if (STR_LESS(*begin, minval)) minval = *begin;
+      if (STR_MORE(*begin, maxval)) maxval = *begin;
       mm.insert(std::make_pair(*begin, n));
       idx[i] = n;
       dict[n] = i;
@@ -93,20 +123,30 @@ uint64_t create_dict_ptr_idx(void** values, int *dict, int *idx,
   return n;
 }
 
-uint64_t create_dict_real_idx(double* values, int *dict, int *idx, uint64_t len) {
+uint64_t create_dict_real_idx(double* values, int *dict, int *idx,
+                              uint64_t len, double &minval,
+                              double &maxval, bool &hasminmax) {
   std::unordered_map<double, int> mm;
   mm.reserve(len * 2);
   double *begin = values;
   double *end = begin + len;
   int n = 0;
 
+  hasminmax = false;
+
   for (int i = 0; begin < end; begin++, i++) {
     if (R_IsNA(*begin)) {
       idx[i] = NA_INTEGER;
       continue;
     }
+    if (!hasminmax) {
+      hasminmax = true;
+      minval = maxval = *begin;
+    }
     auto it = mm.find(*begin);
     if (it == mm.end()) {
+      if (*begin < minval) minval = *begin;
+      if (*begin > maxval) maxval = *begin;
       mm.insert(std::make_pair(*begin, n));
       idx[i] = n;
       dict[n] = i;
@@ -120,20 +160,29 @@ uint64_t create_dict_real_idx(double* values, int *dict, int *idx, uint64_t len)
 }
 
 template <typename T>
-uint64_t create_dict_idx(T* values, int *dict, int *idx, uint64_t len, T naval) {
+uint64_t create_dict_idx(T* values, int *dict, int *idx, uint64_t len,
+                         T naval, T &minval, T &maxval, bool &hasminmax) {
   std::unordered_map<T, int> mm;
   mm.reserve(len * 2);
   T *begin = values;
   T *end = begin + len;
   int n = 0;
 
+  hasminmax = false;
+
   for (int i = 0; begin < end; begin++, i++) {
     if (*begin == naval) {
       idx[i] = NA_INTEGER;
       continue;
     }
+    if (!hasminmax) {
+      hasminmax = true;
+      minval = maxval = *begin;
+    }
     auto it = mm.find(*begin);
     if (it == mm.end()) {
+      if (*begin < minval) minval = *begin;
+      if (*begin > maxval) maxval = *begin;
       mm.insert(std::make_pair(*begin, n));
       idx[i] = n;
       dict[n] = i;
@@ -173,27 +222,44 @@ SEXP nanoparquet_create_dict(SEXP x, SEXP rlen) {
   return Rf_ScalarInteger(dictlen);
 }
 
-SEXP nanoparquet_create_dict_idx(SEXP x) {
-  R_xlen_t dictlen, len = Rf_xlength(x);
-  SEXP uwtoken = PROTECT(R_MakeUnwindCont());
-  R_API_START();
+SEXP nanoparquet_create_dict_idx_(SEXP x, SEXP from, SEXP until) {
+  int64_t cfrom = INTEGER(from)[0];
+  int64_t cuntil = INTEGER(until)[0];
+  int64_t len = cuntil - cfrom;
+  R_xlen_t dictlen;
 
-  SEXP idx = PROTECT(safe_allocvector_int(len, &uwtoken));
-  SEXP dict = PROTECT(safe_allocvector_int(len, &uwtoken));
+  SEXP idx = PROTECT(Rf_allocVector(INTSXP, len));
+  SEXP dict = PROTECT(Rf_allocVector(INTSXP, len));
   int *idict = INTEGER(dict);
   int *iidx = INTEGER(idx);
+  int imin, imax;
+  double dmin, dmax;
+  SEXP smin = R_NilValue, smax = R_NilValue;
+  bool hasminmax = false;
   switch (TYPEOF(x)) {
     case LGLSXP:
-      dictlen = create_dict_idx<int>(LOGICAL(x), iidx, idict, len, NA_LOGICAL);
+      dictlen = create_dict_idx<int>(
+        LOGICAL(x) + cfrom, iidx, idict, len, NA_LOGICAL,
+        imin, imax, hasminmax
+      );
       break;
     case INTSXP:
-      dictlen = create_dict_idx<int>(INTEGER(x), idict, iidx, len, NA_INTEGER);
+      dictlen = create_dict_idx<int>(
+        INTEGER(x) + cfrom, idict, iidx, len, NA_INTEGER,
+        imin, imax, hasminmax
+      );
       break;
     case REALSXP:
-      dictlen = create_dict_real_idx(REAL(x), idict, iidx, len);
+      dictlen = create_dict_real_idx(
+        REAL(x) + cfrom, idict, iidx, len,
+        dmin, dmax, hasminmax
+      );
       break;
     case STRSXP: {
-      dictlen = create_dict_ptr_idx((void**)STRING_PTR_RO(x),idict, iidx, len, (void*) NA_STRING);
+      dictlen = create_dict_str_idx(
+        STRING_PTR_RO(x) + cfrom, idict, iidx, len, NA_STRING,
+        smin, smax, hasminmax
+      );
       break;
     }
     default:
@@ -201,16 +267,64 @@ SEXP nanoparquet_create_dict_idx(SEXP x) {
       break;
   }
 
-  SEXP res = PROTECT(safe_allocvector_vec(2, &uwtoken));
+  SEXP res = PROTECT(Rf_allocVector(VECSXP, hasminmax ? 4 : 2));
   SET_VECTOR_ELT(res, 0, dict);
   SET_VECTOR_ELT(res, 1, idx);
-
-  if (dictlen < len) {
-    SET_VECTOR_ELT(res, 0, safe_xlengthgets(dict, dictlen, &uwtoken));
+  if (hasminmax) {
+    if (TYPEOF(x) == INTSXP) {
+      SET_VECTOR_ELT(res, 2, Rf_ScalarInteger(imin));
+      SET_VECTOR_ELT(res, 3, Rf_ScalarInteger(imax));
+    } else if (TYPEOF(x) == REALSXP) {
+      SET_VECTOR_ELT(res, 2, Rf_ScalarReal(dmin));
+      SET_VECTOR_ELT(res, 3, Rf_ScalarReal(dmax));
+    } else if (TYPEOF(x) == STRSXP) {
+      SET_VECTOR_ELT(res, 2, smin);
+      SET_VECTOR_ELT(res, 3, smax);
+    }
   }
 
-  UNPROTECT(4);
+  if (dictlen < len) {
+    SET_VECTOR_ELT(res, 0, Rf_xlengthgets(dict, dictlen));
+  }
+
+  UNPROTECT(3);
   return res;
+}
+
+struct nanoparquet_create_dict_idx_data {
+  SEXP data;
+  SEXP from;
+  SEXP until;
+};
+
+inline SEXP nanoparquet_create_dict_idx_wrapper(void *data) {
+  struct nanoparquet_create_dict_idx_data *rdata =
+    (struct nanoparquet_create_dict_idx_data*) data;
+  return nanoparquet_create_dict_idx_(
+    rdata->data,
+    rdata->from,
+    rdata->until
+  );
+}
+
+SEXP nanoparquet_create_dict_idx(SEXP x, SEXP from, SEXP until, SEXP call) {
+
+  struct nanoparquet_create_dict_idx_data data = { x, from, until };
+
+  SEXP uwt = PROTECT(R_MakeUnwindCont());
+  R_API_START(call);
+
+  SEXP ret = R_UnwindProtect(
+    nanoparquet_create_dict_idx_wrapper,
+    &data,
+    throw_error,
+    &uwt,
+    uwt
+  );
+
+  UNPROTECT(1);
+  return ret;
+
   R_API_END();
 }
 

@@ -215,7 +215,7 @@
 # DELTA_BIANRY_PACKED encoding
 
     Code
-      parquet_metadata(pf)$column_chunks$encodings
+      read_parquet_metadata(pf)$column_chunks$encodings
     Output
       [[1]]
       [1] "RLE"                 "DELTA_BINARY_PACKED"
@@ -253,7 +253,7 @@
 ---
 
     Code
-      parquet_metadata(pf2)$column_chunks$encodings
+      read_parquet_metadata(pf2)$column_chunks$encodings
     Output
       [[1]]
       [1] "RLE"                 "DELTA_BINARY_PACKED"
@@ -291,7 +291,7 @@
 ---
 
     Code
-      parquet_metadata(pf3)$column_chunks$encodings
+      read_parquet_metadata(pf3)$column_chunks$encodings
     Output
       [[1]]
       [1] "RLE"                 "DELTA_BINARY_PACKED"
@@ -409,11 +409,11 @@
       as.data.frame(bss)[1:5, ]
     Output
         float16_plain float16_byte_stream_split float_plain float_byte_stream_split
-      1        27, 49                    27, 49   10.337575               10.337575
-      2        7b, 48                    7b, 48   11.407482               11.407482
-      3        60, 49                    60, 49   10.090585               10.090585
-      4        78, 49                    78, 49   10.643939               10.643939
-      5        06, 48                    06, 48    7.949828                7.949828
+      1     10.304688                 10.304688   10.337575               10.337575
+      2      8.960938                  8.960938   11.407482               11.407482
+      3     10.750000                 10.750000   10.090585               10.090585
+      4     10.937500                 10.937500   10.643939               10.643939
+      5      8.046875                  8.046875    7.949828                7.949828
         double_plain double_byte_stream_split int32_plain int32_byte_stream_split
       1     9.820389                 9.820389       24191                   24191
       2    10.196776                10.196776       41157                   41157
@@ -427,9 +427,98 @@
       4 2.46066e+11             2.46066e+11 31, 31, 39, 31, 34
       5 5.72141e+11             5.72141e+11 30, 33, 31, 32, 35
         flba5_byte_stream_split decimal_plain decimal_byte_stream_split
-      1      30, 33, 37, 39, 35      251679.1                  251679.1
-      2      30, 30, 33, 36, 33      234932.3                  234932.3
-      3      30, 31, 30, 33, 38      268491.8                  268491.8
-      4      31, 31, 39, 31, 34      234895.9                  234895.9
-      5      30, 33, 31, 32, 35      218165.6                  218165.6
+      1      30, 33, 37, 39, 35      1003.858                  1003.858
+      2      30, 30, 33, 36, 33       968.825                   968.825
+      3      30, 31, 30, 33, 38      1104.934                  1104.934
+      4      31, 31, 39, 31, 34       932.398                   932.398
+      5      30, 33, 31, 32, 35       913.768                   913.768
+
+# DECIMAL in INT32, INT64
+
+    Code
+      as.data.frame(read_parquet(pf))
+    Output
+         value
+      1      1
+      2      2
+      3      3
+      4      4
+      5      5
+      6      6
+      7      7
+      8      8
+      9      9
+      10    10
+      11    11
+      12    12
+      13    13
+      14    14
+      15    15
+      16    16
+      17    17
+      18    18
+      19    19
+      20    20
+      21    21
+      22    22
+      23    23
+      24    24
+
+---
+
+    Code
+      as.data.frame(read_parquet(pf))
+    Output
+         value
+      1      1
+      2      2
+      3      3
+      4      4
+      5      5
+      6      6
+      7      7
+      8      8
+      9      9
+      10    10
+      11    11
+      12    12
+      13    13
+      14    14
+      15    15
+      16    16
+      17    17
+      18    18
+      19    19
+      20    20
+      21    21
+      22    22
+      23    23
+      24    24
+
+# FLOAT16
+
+    Code
+      as.data.frame(read_parquet_schema(pf))
+    Output
+                                     file_name   name r_type                 type
+      1 data/float16_nonzeros_and_nans.parquet schema   <NA>                 <NA>
+      2 data/float16_nonzeros_and_nans.parquet      x    raw FIXED_LEN_BYTE_ARRAY
+        type_length repetition_type converted_type logical_type num_children scale
+      1          NA        REQUIRED           <NA>                         1    NA
+      2           2        OPTIONAL           <NA>      FLOAT16           NA    NA
+        precision field_id
+      1        NA       NA
+      2        NA       NA
+    Code
+      as.data.frame(read_parquet(pf))
+    Output
+          x
+      1  NA
+      2   1
+      3  -2
+      4 NaN
+      5   0
+      6  -1
+      7   0
+      8   2
 

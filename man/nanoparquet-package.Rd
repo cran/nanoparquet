@@ -13,26 +13,30 @@ Self-sufficient reader and writer for flat 'Parquet' files. Can read most 'Parqu
 \subsection{Features:}{
 \itemize{
 \item Read and write flat (i.e. non-nested) Parquet files.
-\item Can read most \href{https://r-lib.github.io/nanoparquet/reference/nanoparquet-types.html}{Parquet data types}.
+\item Can read most \href{https://nanoparquet.r-lib.org/reference/nanoparquet-types.html}{Parquet data types}.
+\item Can read a subset of columns from a Parquet file.
 \item Can write many R data types, including factors and temporal types
 to Parquet.
+\item Can append a data frame to a Parquet file without first reading and then
+rewriting the whole file.
 \item Completely dependency free.
 \item Supports Snappy, Gzip and Zstd compression.
+\item \href{https://nanoparquet.r-lib.org/dev/articles/benchmarks.html}{Competitive} with other
+tools in terms of speed, memory use and file size.
 }
 }
 
 \subsection{Limitations:}{
 \itemize{
 \item Nested Parquet types are not supported.
-\item Some Parquet logical types are not supported: \code{FLOAT16}, \code{INTERVAL},
+\item Some Parquet logical types are not supported: \code{INTERVAL},
 \code{UNKNOWN}.
 \item Only Snappy, Gzip and Zstd compression is supported.
 \item Encryption is not supported.
 \item Reading files from URLs is not supported.
-\item Being single-threaded and not fully optimized, nanoparquet is probably
-not suited well for large data sets. It should be fine for a couple of
-gigabytes. Reading or writing a ~250MB file that has 32 million rows and 14 columns takes about 10-15 seconds on an M2 MacBook Pro.
-For larger files, use Apache Arrow or DuckDB.
+\item nanoparquet always reads the data (or the selected subset of it) into
+memory. It does not work with out-of-memory data in Parquet files like
+Apache Arrow and DuckDB does.
 }
 }
 
@@ -53,9 +57,9 @@ Call \code{read_parquet()} to read a Parquet file:
 }\if{html}{\out{</div>}}
 
 To see the columns of a Parquet file and how their types are mapped to
-R types by \code{read_parquet()}, call \code{parquet_column_types()} first:
+R types by \code{read_parquet()}, call \code{read_parquet_schema()} first:
 
-\if{html}{\out{<div class="sourceCode r">}}\preformatted{nanoparquet::parquet_column_types("example.parquet")
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{nanoparquet::read_parquet_schema("example.parquet")
 }\if{html}{\out{</div>}}
 
 Folders of similar-structured Parquet files (e.g. produced by Spark)
@@ -76,31 +80,29 @@ Call \code{write_parquet()} to write a data frame to a Parquet file:
 }\if{html}{\out{</div>}}
 
 To see how the columns of the data frame will be mapped to Parquet types
-by \code{write_parquet()}, call \code{parquet_column_types()} first:
+by \code{write_parquet()}, call \code{infer_parquet_schema()} first:
 
-\if{html}{\out{<div class="sourceCode r">}}\preformatted{nanoparquet::parquet_column_types(mtcars)
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{nanoparquet::infer_parquet_schema(mtcars)
 }\if{html}{\out{</div>}}
 }
 
 \subsection{Inspect}{
 
-Call \code{parquet_info()}, \code{parquet_column_types()}, \code{parquet_schema()} or
-\code{parquet_metadata()} to see various kinds of metadata from a Parquet
+Call \code{read_parquet_info()}, \code{read_parquet_schema()}, or
+\code{read_parquet_metadata()} to see various kinds of metadata from a Parquet
 file:
 \itemize{
-\item \code{parquet_info()} shows a basic summary of the file.
-\item \code{parquet_column_types()} shows the leaf columns, these are are the ones
-that \code{read_parquet()} reads into R.
-\item \code{parquet_schema()} shows all columns, including non-leaf columns.
-\item \code{parquet_metadata()} shows the most complete metadata information:
+\item \code{read_parquet_info()} shows a basic summary of the file.
+\item \code{read_parquet_schema()} shows all columns, including non-leaf columns,
+and how they are mapped to R types by \code{read_parquet()}.
+\item \code{read_parquet_metadata()} shows the most complete metadata information:
 file meta data, the schema, the row groups and column chunks of the
 file.
 }
 
-\if{html}{\out{<div class="sourceCode r">}}\preformatted{nanoparquet::parquet_info("mtcars.parquet")
-nanoparquet::parquet_column_types("mtcars.parquet")
-nanoparquet::parquet_schema("mtcars.parquet")
-nanoparquet::parquet_metadata("mtcars.parquet")
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{nanoparquet::read_parquet_info("mtcars.parquet")
+nanoparquet::read_parquet_schema("mtcars.parquet")
+nanoparquet::read_parquet_metadata("mtcars.parquet")
 }\if{html}{\out{</div>}}
 
 If you find a file that should be supported but isn't, please open an
@@ -136,7 +138,7 @@ MIT
 Useful links:
 \itemize{
   \item \url{https://github.com/r-lib/nanoparquet}
-  \item \url{https://r-lib.github.io/nanoparquet/}
+  \item \url{https://nanoparquet.r-lib.org/}
   \item Report bugs at \url{https://github.com/r-lib/nanoparquet/issues}
 }
 

@@ -6,8 +6,13 @@
 \usage{
 parquet_options(
   class = getOption("nanoparquet.class", "tbl"),
+  compression_level = getOption("nanoparquet.compression_level", NA_integer_),
+  keep_row_groups = FALSE,
+  num_rows_per_row_group = getOption("nanoparquet.num_rows_per_row_group", 10000000L),
   use_arrow_metadata = getOption("nanoparquet.use_arrow_metadata", TRUE),
-  write_arrow_metadata = getOption("nanoparquet.write_arrow_metadata", TRUE)
+  write_arrow_metadata = getOption("nanoparquet.write_arrow_metadata", TRUE),
+  write_data_page_version = getOption("nanoparquet.write_data_page_version", 1L),
+  write_minmax_values = getOption("nanoparquet.write_minmax_values", TRUE)
 )
 }
 \arguments{
@@ -16,8 +21,33 @@ in \code{\link[=read_parquet]{read_parquet()}}. By default nanoparquet adds the 
 so data frames are printed differently if the pillar package is
 loaded.}
 
+\item{compression_level}{The compression level in \code{\link[=write_parquet]{write_parquet()}}.
+\code{NA} is the default, and it specifies the default
+compression level of each method. \code{Inf} always selects the highest
+possible compression level. More details:
+\itemize{
+\item Snappy does not support compression levels currently.
+\item GZIP supports levels from 0 (uncompressed), 1 (fastest), to 9 (best).
+The default is 6.
+\item ZSTD allows positive levels up to 22 currently. 20 and above require
+more memory. Negative levels are also allowed, the lower the level,
+the faster the speed, at the cost of compression. Currently the
+smallest level is -131072. The default level is 3.
+}}
+
+\item{keep_row_groups}{This option is used when appending to a Parquet
+file with \code{\link[=append_parquet]{append_parquet()}}. If \code{TRUE} then the existing row groups
+of the file are always kept as is and nanoparquet creates new row
+groups for the new data. If \code{FALSE} (the default), then the last row
+group of the file will be overwritten if it is smaller than the
+default row group size, i.e. \code{num_rows_per_row_group}.}
+
+\item{num_rows_per_row_group}{The number of rows to put into a row
+group, if row groups are not specified explicitly. It should be
+an integer scalar. Defaults to 10 million.}
+
 \item{use_arrow_metadata}{\code{TRUE} or \code{FALSE}. If \code{TRUE}, then
-\code{\link[=read_parquet]{read_parquet()}} and \code{\link[=parquet_column_types]{parquet_column_types()}} will make use of the Apache
+\code{\link[=read_parquet]{read_parquet()}} and \code{\link[=read_parquet_schema]{read_parquet_schema()}} will make use of the Apache
 Arrow metadata to assign R classes to Parquet columns.
 This is currently used to detect factor columns, and to detect
 "difftime" columns.
@@ -32,6 +62,17 @@ to tell which without using the Arrow metadata.
 
 \item{write_arrow_metadata}{Whether to add the Apache Arrow types as
 metadata to the file \code{\link[=write_parquet]{write_parquet()}}.}
+
+\item{write_data_page_version}{Data version to write by default.
+Possible values are 1 and 2. Default is 1.}
+
+\item{write_minmax_values}{Whether to write minimum and maximum values
+per row group, for data types that support this in \code{\link[=write_parquet]{write_parquet()}}.
+However, nanoparquet currently does not support minimum and maximum
+values for the \code{DECIMAL}, \code{UUID} and \code{FLOAT16} logical types and the
+\code{BOOLEAN}, \code{BYTE_ARRAY} and \code{FIXED_LEN_BYTE_ARRAY} primitive types
+if they are writing without a logical type. Currently the default
+is \code{TRUE}.}
 }
 \value{
 List of nanoparquet options.

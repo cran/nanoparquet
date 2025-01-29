@@ -1,43 +1,30 @@
-# read Arrow metadata from a file
-parquet_arrow_metadata <- function(file) {
-  fmd <- parquet_metadata(file)$file_meta_data
-  kv <- fmd$key_value_metadata[[1]]
-  if (! "ARROW:schema" %in% kv$key) {
-    stop("No Arrow metadata in file")
+apply_arrow_schema <- function(tab, file, arrow_schema, dicts, types,
+                               col_select) {
+  if (is.na(arrow_schema)) {
+    return(tab)
   }
-  amd <- kv$value[match("ARROW:schema", kv$key)]
-  parse_arrow_schema(amd)
-}
-
-apply_arrow_schema <- function(tab, file, dicts, types) {
-  mtd <- parquet_metadata(file)
-  kv <- mtd$file_meta_data$key_value_metadata[[1]]
-  if ("ARROW:schema" %in% kv$key) {
-    spec <- arrow_find_special(
-      kv$value[match("ARROW:schema", kv$key)],
-      file
+  spec <- arrow_find_special(arrow_schema, file, col_select)
+  for (idx in spec$factor) {
+    clevels <- Reduce(union, dicts[[idx]])
+    tab[[idx]] <- factor(tab[[idx]], levels = clevels)
+  }
+  for (idx in spec$difftime) {
+    # only if INT64, otherwise hms, probably
+    if (types[[idx]] != 2) next
+    mult <- switch(
+      spec$columns$type[[idx]]$unit,
+      SECOND = 1,
+      MILLISECOND = 1000,
+      MICROSECOND = 1000 * 1000,
+      NANOSECOND = 1000 * 1000 * 1000,
+      stop("Unknown Arrow time unit")
     )
-    for (idx in spec$factor) {
-      tab[[idx]] <- factor(tab[[idx]], levels = dicts[[idx]])
-    }
-    for (idx in spec$difftime) {
-      # only if INT64, otherwise hms, probably
-      if (types[[idx]] != 2) next
-      mult <- switch(
-        spec$columns$type[[idx]]$unit,
-        SECOND = 1,
-        MILLISECOND = 1000,
-        MICROSECOND = 1000 * 1000,
-        NANOSECOND = 1000 * 1000 * 1000,
-        stop("Unknown Arrow time unit")
-      )
-      tab[[idx]] <- as.difftime(tab[[idx]] / mult, units = "secs")
-    }
+    tab[[idx]] <- as.difftime(tab[[idx]] / mult, units = "secs")
   }
   tab
 }
 
-arrow_find_special <- function(asch, file) {
+arrow_find_special <- function(asch, file, col_select = NULL) {
   amd <- tryCatch(
     parse_arrow_schema(asch)$columns,
     error = function(e) {
@@ -50,6 +37,10 @@ arrow_find_special <- function(asch, file) {
   )
   if (is.null(amd)) {
     return(list())
+  }
+  # Subset of columns?
+  if (!is.null(col_select)) {
+    amd <- amd[col_select, , drop = FALSE]
   }
   # If the type is Utf8 and it is a dictionary, then it is a factor
   fct <- which(
@@ -172,12 +163,13 @@ parse_arrow_schema <- function(schema) {
 encode_arrow_schema_r <- function(df) {
   endianness <- capitalize(.Platform$endian)
 	fctrs <- vapply(df, function(c) inherits(c, "factor"), logical(1))
-  dfts <- vapply(df, function(c) inherits(c, "difftime"), logical(1))
+  dfts <- vapply(df, function(c) !inherits(c, "hms") && inherits(c, "difftime"), logical(1))
   typemap <- c(
     "integer" = "Int",
     "double" = "FloatingPoint",
     "character" = "Utf8",
-    "logical" = "Bool"
+    "logical" = "Bool",
+    "list" = "Binary"
   )
   dftypes <- vapply(df, typeof, character(1))
   artypes <- typemap[dftypes]
