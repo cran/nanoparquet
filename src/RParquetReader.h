@@ -32,6 +32,8 @@ public:
   int tmptype = 0;
   // size of tmptype or type in bytes
   int elsize;
+  // size in parquet (with PLAIN encoding)
+  int psize;
   // number of R tmptype elements for 1 Parquet element
   int rsize = 1;
   std::vector<std::string> classes;
@@ -89,6 +91,13 @@ public:
   std::vector<uint32_t> columns;
 };
 
+struct chunk_part {
+  int64_t offset;         // within the row group
+  int64_t num_values;
+  int64_t num_present;
+  bool dict;
+};
+
 class RParquetReader : public ParquetReader {
 public:
   RParquetReader(std::string filename, bool readwrite = false);
@@ -116,6 +125,7 @@ public:
 
   std::vector<std::vector<uint8_t>> tmpdata;
   std::vector<std::vector<tmpdict>> dicts;
+  std::vector<std::vector<std::vector<chunk_part>>> chunk_parts;
   std::vector<std::vector<std::vector<tmpbytes>>> byte_arrays;
   std::vector<std::vector<presentmap>> present;
   rmetadata metadata;
@@ -124,4 +134,7 @@ protected:
   RParquetFilter filter;
   void init(RParquetFilter &filter);
   std::vector<uint32_t> colmap;
+  void calculate_dict_steps();
+  void calculate_dict_steps_simple();
+  void calculate_dict_steps_bad();
 };
