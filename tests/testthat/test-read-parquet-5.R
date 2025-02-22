@@ -148,6 +148,7 @@ test_that("mixing RLE_DICTIONARY and PLAIN", {
   expect_equal(tab$i96, rep(utcts(sprintf('%d-01-01', 1800:2199)), 6))
 
   skip_on_cran()
+  skip_without("arrow")
   pf <- test_path("data/mixed-miss.parquet")
   expect_snapshot({
     as.data.frame(read_parquet_schema(pf)[, c("type", "repetition_type")])
@@ -165,6 +166,7 @@ test_that("mixing RLE_DICTIONARY and PLAIN", {
 
 test_that("mixing RLE_DICTIONARY and PLAIN, DECIMAL", {
   skip_on_cran()
+  skip_without("arrow")
   pf <- test_path("data/decimal.parquet")
   expect_snapshot({
     as.data.frame(read_parquet_schema(pf)[, c("type", "repetition_type")])
@@ -192,6 +194,7 @@ test_that("mixing RLE_DICTIONARY and PLAIN, DECIMAL", {
 
 test_that("mixing RLE_DICTIONARY and PLAIN, BYTE_ARRAY", {
   skip_on_cran()
+  skip_without("arrow")
   pf <- test_path("data/binary.parquet")
   expect_snapshot({
     as.data.frame(read_parquet_schema(pf)[, c("type", "repetition_type")])
@@ -205,6 +208,7 @@ test_that("mixing RLE_DICTIONARY and PLAIN, BYTE_ARRAY", {
 
 test_that("mixing RLE_DICTIONARY and PLAIN, FLOAT16", {
   skip_on_cran()
+  skip_without("arrow")
   pf <- test_path("data/float16.parquet")
   expect_snapshot({
     as.data.frame(read_parquet_schema(pf)[, c("type", "repetition_type")])
@@ -221,4 +225,13 @@ test_that("mixing RLE_DICTIONARY and PLAIN, FLOAT16", {
   bs2 <- rep(0:399, 3)
   bs2[is.na(t1[,2])] <- NA
   expect_equal(t1[,2], bs2)
+})
+
+# https://github.com/r-lib/nanoparquet/issues/132
+test_that("dict page w/o dict offset set", {
+  pf <- test_path("data/broken/polars-no-dict-offset.parquet")
+  expect_equal(
+    as.data.frame(read_parquet(pf)),
+    data.frame(a = c(1,2,3), b = c(4,5,6))
+  )
 })
