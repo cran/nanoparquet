@@ -172,6 +172,7 @@ static const R_CallMethodDef R_CallDef[] = {
 
   CALLDEF(is_asan_, 0),
   CALLDEF(is_ubsan_, 0),
+
   {NULL, NULL, 0}
 };
 
