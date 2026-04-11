@@ -1,6 +1,6 @@
 Package: nanoparquet
 Title: Read and Write 'Parquet' Files
-Version: 0.4.3
+Version: 0.5.0
 Authors@R: c(
     person("Gábor", "Csárdi", role = c("aut", "cre"), email = "csardi.gabor@gmail.com"),
     person("Hannes", "Mühleisen", role = c("aut", "cph"), comment = c(ORCID = "0000-0001-8552-0029")),
@@ -22,7 +22,6 @@ BugReports: https://github.com/r-lib/nanoparquet/issues
 Encoding: UTF-8
 Suggests: arrow, bit64, DBI, duckdb (>= 1.4.0), hms, mockery, pillar,
         processx, rprojroot, spelling, testthat, tzdb, withr
-RoxygenNote: 7.3.2.9000
 Config/testthat/edition: 3
 Config/testthat/parallel: TRUE
 Config/Needs/website: tidyverse/tidytemplate, r-lib/pkgdown, dplyr, gt,
@@ -30,8 +29,9 @@ Config/Needs/website: tidyverse/tidytemplate, r-lib/pkgdown, dplyr, gt,
         sessioninfo, svglite
 Language: en-US
 Biarch: true
+Config/roxygen2/version: 7.3.3.9000
 NeedsCompilation: yes
-Packaged: 2025-12-16 21:21:50 UTC; gaborcsardi
+Packaged: 2026-04-10 20:51:44 UTC; gaborcsardi
 Author: Gábor Csárdi [aut, cre],
   Hannes Mühleisen [aut, cph] (ORCID:
     <https://orcid.org/0000-0001-8552-0029>),
@@ -44,4 +44,4 @@ Author: Gábor Csárdi [aut, cre],
   Facebook, Inc. [cph]
 Maintainer: Gábor Csárdi <csardi.gabor@gmail.com>
 Repository: CRAN
-Date/Publication: 2025-12-17 06:40:22 UTC
+Date/Publication: 2026-04-11 06:21:00 UTC

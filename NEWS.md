@@ -1,3 +1,59 @@
+# nanoparquet 0.5.0
+
+* `append_parquet()` now gives a clear error when appending data with
+  missing values (`NA`) to a column that was written as `REQUIRED` (i.e.
+  non-nullable) (#146).
+
+* `append_parquet()` now creates a new file if `file` does not exist (#155).
+
+* `read_parquet()` now correctly reads `DECIMAL` values stored as
+  `FIXED_LEN_BYTE_ARRAY` with a byte length greater than 8 (e.g. 128-bit
+  decimals) (#148).
+
+* `write_parquet()` now sets the `definition_level_encoding` and
+  `repetition_level_encoding` fields in data page headers to `RLE` for all
+  columns, fixing an interoperability issue with the Apache Parquet Java
+  library (#98).
+
+* `write_parquet()` now writes the `ARROW:schema` metadata with correct
+  flatbuffer alignment, fixing an interoperability issue with the Rust
+  arrow-rs parquet reader (#152).
+
+* `read_parquet()` now reads logical (BOOLEAN) columns correctly when the
+  column spans multiple data pages (#142).
+
+* `write_parquet()` now writes files larger than 4 GB correctly. File offsets
+  and column sizes were stored as 32-bit integers and overflowed, producing
+  corrupt Parquet files that could not be read back (#143).
+
+* `write_parquet()` now handles data frames with zero rows correctly,
+  including zero-column data frames (#138).
+
+* `read_parquet()` no longer crashes when reading a Parquet file with
+  zero columns (#138).
+
+* nanoparquet now supports Parquet `LIST` columns:
+
+  - `write_parquet()` can write R list columns whose elements are integer,
+    double, or character vectors. `NULL` entries encode a missing list,
+    `NA` values inside an element vector encode a missing element, and
+    zero-length vectors encode an empty list.
+
+  - `read_parquet()` can read `LIST` columns with any supported scalar
+    element type. All four combinations of optional/required outer list
+    and optional/required element are supported, for both data page
+    version 1 and version 2.
+
+  - `parquet_schema()` accepts `list("LIST", element = <type>)` to
+    specify a `LIST` column type explicitly.
+
+  - `infer_parquet_schema()` and `read_parquet_schema()` report list
+    columns with `r_type` `list(...)`, e.g. `list(double)` or
+    `list(list(characer))`, etc.
+
+  - Dictionary encoding (`RLE_DICTIONARY`) is supported for `LIST`
+    columns.
+
 # nanoparquet 0.4.3
 
 * No user visible changes.

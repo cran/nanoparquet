@@ -424,6 +424,9 @@ test_that("DELTA_BYTE_ARRAY encoding", {
 test_that("BYTE_STREAM_SPLIT encoding", {
   skip_on_cran()
   skip_without("arrow")
+  if (getRversion() < "4.2.0" && .Platform$OS.type == "windows") {
+    skip("arrow fails here")
+  }
   pf <- test_path("data/byte_stream_split.parquet")
   bss <- read_parquet(pf)
   expect_snapshot({
@@ -445,6 +448,16 @@ test_that("More BYTE_STREAM_SPLIT", {
   for (i in 1:7) {
     expect_equal(bss[[2 * i - 1]], bss[[2 * i]])
   }
+})
+
+test_that("DECIMAL in FIXED_LEN_BYTE_ARRAY (128-bit)", {
+  # 16-byte / 128-bit decimals; previously only low 64 bits were read (#148)
+  pf <- test_path("data/decimal128.parquet")
+  df <- read_parquet(pf)
+  expect_equal(typeof(df$Value), "double")
+  expect_equal(typeof(df$DataCapture), "double")
+  expect_equal(df$Value, c(51.70559, 49.52529, 51.69562, 49.90946, 50.06762, 54.69116))
+  expect_equal(df$DataCapture, rep(-99, 6))
 })
 
 test_that("DECIMAL in INT32, INT64", {

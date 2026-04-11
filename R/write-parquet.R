@@ -101,8 +101,9 @@ write_parquet <- function(
     }
   }
 
-  schema <- check_schema_required_cols(x, schema)
-  required <- schema[["repetition_type"]] == "REQUIRED"
+  schema_top <- schema[!duplicated(schema[["r_col"]]), ]
+  schema_top <- check_schema_required_cols(x, schema_top)
+  required   <- schema_top[["repetition_type"]] == "REQUIRED"
 
   encoding <- parse_encoding(encoding, x)
 
@@ -204,7 +205,7 @@ prepare_write_df <- function(x) {
 check_schema_required_cols <- function(x, schema) {
   # if schema has REQUIRED, but the column has NAs, that's an error
   rt <- schema[["repetition_type"]]
-  req <- !is.na(rt) & rt == "REQUIRED"
+  req <- !is.na(rt) & (rt == "REQUIRED" | rt == 0L)
   hasna <- vapply(x, any_na, logical(1))
   bad <- which(req & hasna)
   if (length(bad) > 0) {
@@ -216,7 +217,7 @@ check_schema_required_cols <- function(x, schema) {
     )
   }
   schema[["repetition_type"]][is.na(rt)] <-
-    ifelse(hasna[is.na(rt)], "OPITONAL", "REQUIRED")
+    ifelse(hasna[is.na(rt)], "OPTIONAL", "REQUIRED")
   schema
 }
 
@@ -253,6 +254,7 @@ parse_encoding <- function(encoding, x) {
 
 # we should refine this later
 default_row_groups <- function(x, schema, compression, encoding, options) {
+  if (nrow(x) == 0L) return(integer(0))
   default_size <- options[["num_rows_per_row_group"]]
   seq(1L, nrow(x), by = default_size)
 }
@@ -282,6 +284,15 @@ default_append_row_groups <- function(
 }
 
 parse_row_groups <- function(x, rg) {
+  if (length(rg) == 0L) {
+    if (!is.integer(rg)) {
+      stop(
+        "Row groups must be specified as a growing positive integer ",
+        "vector, starting with 1."
+      )
+    }
+    return(list(x = x, row_groups = rg))
+  }
   if (
     !is.integer(rg) ||
       anyNA(rg) ||
@@ -359,6 +370,18 @@ append_parquet <- function(
   options = parquet_options()
 ) {
   file <- path.expand(file)
+
+  if (!file.exists(file)) {
+    return(write_parquet(
+      x,
+      file,
+      compression = compression,
+      encoding = encoding,
+      row_groups = row_groups,
+      options = options
+    ))
+  }
+
   compression <- parse_compression(compression, options)
 
   x <- prepare_write_df(x)
@@ -366,8 +389,9 @@ append_parquet <- function(
   mtd <- read_parquet_metadata(file)
   schema <- read_parquet_schema(file)
   schema <- map_schema_to_df(schema, x, list())
-  schema <- check_schema_required_cols(x, schema)
-  required <- schema[["repetition_type"]] == "REQUIRED"
+  schema_top <- schema[!duplicated(schema[["r_col"]]), ]
+  schema_top <- check_schema_required_cols(x, schema_top)
+  required   <- schema_top[["repetition_type"]] == "REQUIRED"
   encoding <- parse_encoding(encoding, x)
 
   nrow_file <- as.integer(mtd$file_meta_data$num_rows)
