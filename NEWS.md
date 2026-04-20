@@ -1,3 +1,37 @@
+# nanoparquet 0.5.1
+
+* `write_parquet()` now supports writing to the standard output stream, via
+  `file = ":stdout:"`. Example usage from the command line, with `R` or
+  `Rscript`:
+
+  ```
+  R -s -e 'nanoparquet::write_parquet(mtcars, ":stdout:")' > mtcars.parquet
+  Rscript --quiet -e 'nanoparquet::write_parquet(mtcars, ":stdout:")' > mtcars.parquet
+  ```
+
+* nanoparquet now supports `bit64::integer64` columns (#153):
+
+  - `write_parquet()` now writes `bit64::integer64` columns to INT64
+    Parquet columns. Similarly, `infer_parquet_schema()` also supports
+    `bit64::integer64` columns.
+
+  - `read_parquet()` and `read_parquet_schema()` now have a
+    `read_int64_type` option in `parquet_options()` to control how INT64
+    columns are read. Set it to `"integer64"` or `"bit64::integer64"` to
+    read them as `bit64::integer64` vectors instead of the default
+    `"double"`.
+
+* `read_parquet()` now returns `BYTE_ARRAY` and `FIXED_LEN_BYTE_ARRAY`
+  columns (without a string/UUID/decimal annotation) as `blob::blob` objects
+  instead of plain lists of raw vectors. `write_parquet()` now also accepts
+  `blob::blob` columns (#115).
+
+* `read_parquet()` can now read empty data frames (zero rows) written by the
+  arrow package (#160).
+
+* `read_parquet()` can now read Parquet files that have zero-row row groups
+  without dictionary pages (#162).
+
 # nanoparquet 0.5.0
 
 * `append_parquet()` now gives a clear error when appending data with

@@ -8,7 +8,10 @@
 #' @param x Data frame to write.
 #' @param file Path to the output file. If this is the string `":raw:"`,
 #'   then the data frame is written to a memory buffer, and the memory
-#'   buffer is returned as a raw vector.
+#'   buffer is returned as a raw vector. If `":stdout:"`, then it is
+#'   written to the standard output. (When writing to the standard output,
+#'   special care is needed to make sure no regular R output gets mixed
+#'   up with the Parquet bytes!)
 #' @param schema Parquet schema. Specify a schema to tweak the default
 #'   nanoparquet R -> Parquet type mappings. Use [parquet_schema()] to
 #'   create a schema that you can use here, or [read_parquet_schema()] to
@@ -103,7 +106,7 @@ write_parquet <- function(
 
   schema_top <- schema[!duplicated(schema[["r_col"]]), ]
   schema_top <- check_schema_required_cols(x, schema_top)
-  required   <- schema_top[["repetition_type"]] == "REQUIRED"
+  required <- schema_top[["repetition_type"]] == "REQUIRED"
 
   encoding <- parse_encoding(encoding, x)
 
@@ -254,7 +257,9 @@ parse_encoding <- function(encoding, x) {
 
 # we should refine this later
 default_row_groups <- function(x, schema, compression, encoding, options) {
-  if (nrow(x) == 0L) return(integer(0))
+  if (nrow(x) == 0L) {
+    return(integer(0))
+  }
   default_size <- options[["num_rows_per_row_group"]]
   seq(1L, nrow(x), by = default_size)
 }
@@ -391,7 +396,7 @@ append_parquet <- function(
   schema <- map_schema_to_df(schema, x, list())
   schema_top <- schema[!duplicated(schema[["r_col"]]), ]
   schema_top <- check_schema_required_cols(x, schema_top)
-  required   <- schema_top[["repetition_type"]] == "REQUIRED"
+  required <- schema_top[["repetition_type"]] == "REQUIRED"
   encoding <- parse_encoding(encoding, x)
 
   nrow_file <- as.integer(mtd$file_meta_data$num_rows)

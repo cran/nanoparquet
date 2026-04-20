@@ -178,8 +178,16 @@ test_that("list(integer()) multiple row groups", {
   on.exit(unlink(tmp), add = TRUE)
 
   df <- data.frame(id = 1:8)
-  df$x <- list(1L, c(2L, 3L), NULL, c(4L, NA_integer_, 6L),
-               integer(0), c(7L, 8L), NULL, 9L)
+  df$x <- list(
+    1L,
+    c(2L, 3L),
+    NULL,
+    c(4L, NA_integer_, 6L),
+    integer(0),
+    c(7L, 8L),
+    NULL,
+    9L
+  )
   write_parquet(df, tmp, row_groups = c(1L, 4L))
   expect_equal(nrow(read_parquet_metadata(tmp)[["row_groups"]]), 2L)
   df2 <- as.data.frame(read_parquet(tmp))
@@ -192,8 +200,16 @@ test_that("list(double()) multiple row groups", {
   on.exit(unlink(tmp), add = TRUE)
 
   df <- data.frame(id = 1:8)
-  df$x <- list(1.5, c(2.5, 3.5), NULL, c(4.5, NA_real_, 6.5),
-               double(0), c(7.5, 8.5), NULL, 9.5)
+  df$x <- list(
+    1.5,
+    c(2.5, 3.5),
+    NULL,
+    c(4.5, NA_real_, 6.5),
+    double(0),
+    c(7.5, 8.5),
+    NULL,
+    9.5
+  )
   write_parquet(df, tmp, row_groups = c(1L, 4L))
   expect_equal(nrow(read_parquet_metadata(tmp)[["row_groups"]]), 2L)
   df2 <- as.data.frame(read_parquet(tmp))
@@ -206,8 +222,16 @@ test_that("list(character()) multiple row groups", {
   on.exit(unlink(tmp), add = TRUE)
 
   df <- data.frame(id = 1:8)
-  df$x <- list("a", c("b", "c"), NULL, c("d", NA_character_, "f"),
-               character(0), c("g", "h"), NULL, "i")
+  df$x <- list(
+    "a",
+    c("b", "c"),
+    NULL,
+    c("d", NA_character_, "f"),
+    character(0),
+    c("g", "h"),
+    NULL,
+    "i"
+  )
   write_parquet(df, tmp, row_groups = c(1L, 4L))
   expect_equal(nrow(read_parquet_metadata(tmp)[["row_groups"]]), 2L)
   df2 <- as.data.frame(read_parquet(tmp))
@@ -219,8 +243,16 @@ test_that("list(integer()) many row groups", {
   tmp <- tempfile(fileext = ".parquet")
   on.exit(unlink(tmp), add = TRUE)
 
-  pattern <- list(1L, c(2L, 3L), NULL, c(4L, NA_integer_, 6L),
-                  integer(0), c(7L, 8L), NULL, 9L)
+  pattern <- list(
+    1L,
+    c(2L, 3L),
+    NULL,
+    c(4L, NA_integer_, 6L),
+    integer(0),
+    c(7L, 8L),
+    NULL,
+    9L
+  )
   df <- data.frame(id = 1:40)
   df$x <- rep_len(pattern, 40)
   write_parquet(df, tmp, row_groups = seq(1L, 40L, by = 4L))
@@ -234,8 +266,16 @@ test_that("list(double()) many row groups", {
   tmp <- tempfile(fileext = ".parquet")
   on.exit(unlink(tmp), add = TRUE)
 
-  pattern <- list(1.5, c(2.5, 3.5), NULL, c(4.5, NA_real_, 6.5),
-                  double(0), c(7.5, 8.5), NULL, 9.5)
+  pattern <- list(
+    1.5,
+    c(2.5, 3.5),
+    NULL,
+    c(4.5, NA_real_, 6.5),
+    double(0),
+    c(7.5, 8.5),
+    NULL,
+    9.5
+  )
   df <- data.frame(id = 1:40)
   df$x <- rep_len(pattern, 40)
   write_parquet(df, tmp, row_groups = seq(1L, 40L, by = 4L))
@@ -249,8 +289,16 @@ test_that("list(character()) many row groups", {
   tmp <- tempfile(fileext = ".parquet")
   on.exit(unlink(tmp), add = TRUE)
 
-  pattern <- list("a", c("b", "c"), NULL, c("d", NA_character_, "f"),
-                  character(0), c("g", "h"), NULL, "i")
+  pattern <- list(
+    "a",
+    c("b", "c"),
+    NULL,
+    c("d", NA_character_, "f"),
+    character(0),
+    c("g", "h"),
+    NULL,
+    "i"
+  )
   df <- data.frame(id = 1:40)
   df$x <- rep_len(pattern, 40)
   write_parquet(df, tmp, row_groups = seq(1L, 40L, by = 4L))
@@ -345,4 +393,14 @@ test_that("write and read zero rows", {
     read_parquet_metadata(tmp)$file_meta_data$num_rows,
     0L
   )
+})
+
+test_that("read file with zero-row row group (issue #162)", {
+  # File has two row groups: one with 1 row and one with 0 rows.
+  # The zero-row row group has no dictionary page, so data_page_offset is 0.
+  # nanoparquet must not seek to offset 0 in this case.
+  f <- test_path("data/diann_minimal.parquet")
+  d <- read_parquet(f)
+  expect_equal(nrow(d), 1L)
+  expect_equal(ncol(d), 1L)
 })

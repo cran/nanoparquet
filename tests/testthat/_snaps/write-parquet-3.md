@@ -688,7 +688,7 @@
     Output
         r_col   name r_type       type type_length repetition_type converted_type
       1    NA schema   <NA>       <NA>          NA            <NA>           <NA>
-      2     1      d    raw BYTE_ARRAY          NA        OPTIONAL           <NA>
+      2     1      d   blob BYTE_ARRAY          NA        OPTIONAL           <NA>
         logical_type num_children scale precision field_id children
       1                         1    NA        NA       NA         
       2                        NA    NA        NA       NA         
@@ -708,7 +708,7 @@
     Output
         r_col   name r_type                 type type_length repetition_type
       1    NA schema   <NA>                 <NA>          NA            <NA>
-      2     1      d    raw FIXED_LEN_BYTE_ARRAY           3        OPTIONAL
+      2     1      d   blob FIXED_LEN_BYTE_ARRAY           3        OPTIONAL
         converted_type logical_type num_children scale precision field_id children
       1           <NA>                         1    NA        NA       NA         
       2           <NA>                        NA    NA        NA       NA         
@@ -1631,6 +1631,17 @@
       Error in `write_parquet()`:
       ! Negative values are not allowed in unsigned INT column:-1.000000 at column 1, row 2.
 
+# integer64 round-trip and read_int64_type option
+
+    Code
+      as.data.frame(res_dbl)
+    Output
+                    x
+      1  1.000000e+15
+      2 -1.000000e+15
+      3            NA
+      4  2.147484e+09
+
 # JSON
 
     Code
@@ -1638,7 +1649,7 @@
     Output
         r_col   name r_type       type type_length repetition_type converted_type
       1    NA schema   <NA>       <NA>          NA            <NA>           <NA>
-      2     1      d    raw BYTE_ARRAY          NA        OPTIONAL           JSON
+      2     1      d   blob BYTE_ARRAY          NA        OPTIONAL           JSON
         logical_type num_children scale precision field_id children
       1                         1    NA        NA       NA         
       2         JSON           NA    NA        NA       NA         
@@ -1686,7 +1697,7 @@
     Output
         r_col   name r_type                 type type_length repetition_type
       1    NA schema   <NA>                 <NA>          NA            <NA>
-      2     1      c    raw FIXED_LEN_BYTE_ARRAY           2        OPTIONAL
+      2     1      c   blob FIXED_LEN_BYTE_ARRAY           2        OPTIONAL
         converted_type logical_type num_children scale precision field_id children
       1           <NA>                         1    NA        NA       NA         
       2           <NA>      FLOAT16           NA    NA        NA       NA         
@@ -1733,7 +1744,7 @@
     Output
         r_col   name r_type       type type_length repetition_type converted_type
       1    NA schema   <NA>       <NA>          NA            <NA>           <NA>
-      2     1      d    raw BYTE_ARRAY          NA        REQUIRED           <NA>
+      2     1      d   blob BYTE_ARRAY          NA        REQUIRED           <NA>
         logical_type num_children scale precision field_id children
       1                         1    NA        NA       NA         
       2                        NA    NA        NA       NA         
@@ -1752,7 +1763,7 @@
     Output
         r_col   name r_type       type type_length repetition_type converted_type
       1    NA schema   <NA>       <NA>          NA            <NA>           <NA>
-      2     1      d    raw BYTE_ARRAY          NA        OPTIONAL           <NA>
+      2     1      d   blob BYTE_ARRAY          NA        OPTIONAL           <NA>
         logical_type num_children scale precision field_id children
       1                         1    NA        NA       NA         
       2                        NA    NA        NA       NA         
@@ -1773,7 +1784,7 @@
     Output
         r_col   name r_type                 type type_length repetition_type
       1    NA schema   <NA>                 <NA>          NA            <NA>
-      2     1      d    raw FIXED_LEN_BYTE_ARRAY           3        REQUIRED
+      2     1      d   blob FIXED_LEN_BYTE_ARRAY           3        REQUIRED
         converted_type logical_type num_children scale precision field_id children
       1           <NA>                         1    NA        NA       NA         
       2           <NA>                        NA    NA        NA       NA         
@@ -1792,7 +1803,7 @@
     Output
         r_col   name r_type                 type type_length repetition_type
       1    NA schema   <NA>                 <NA>          NA            <NA>
-      2     1      d    raw FIXED_LEN_BYTE_ARRAY           3        OPTIONAL
+      2     1      d   blob FIXED_LEN_BYTE_ARRAY           3        OPTIONAL
         converted_type logical_type num_children scale precision field_id children
       1           <NA>                         1    NA        NA       NA         
       2           <NA>                        NA    NA        NA       NA         
@@ -1805,4 +1816,84 @@
       3 62, 61, 72
       4 61, 61, 61
       5       NULL
+
+# blob::blob to BYTE_ARRAY
+
+    Code
+      as.data.frame(read_parquet_schema(tmp)[, -1])
+    Output
+        r_col   name r_type       type type_length repetition_type converted_type
+      1    NA schema   <NA>       <NA>          NA            <NA>           <NA>
+      2     1      d   blob BYTE_ARRAY          NA        REQUIRED           <NA>
+        logical_type num_children scale precision field_id children
+      1                         1    NA        NA       NA         
+      2                        NA    NA        NA       NA         
+    Code
+      as.data.frame(read_parquet(tmp))
+    Output
+                d
+      1 blob[3 B]
+      2 blob[3 B]
+      3 blob[6 B]
+
+---
+
+    Code
+      as.data.frame(read_parquet_schema(tmp)[, -1])
+    Output
+        r_col   name r_type       type type_length repetition_type converted_type
+      1    NA schema   <NA>       <NA>          NA            <NA>           <NA>
+      2     1      d   blob BYTE_ARRAY          NA        OPTIONAL           <NA>
+        logical_type num_children scale precision field_id children
+      1                         1    NA        NA       NA         
+      2                        NA    NA        NA       NA         
+    Code
+      as.data.frame(read_parquet(tmp))
+    Output
+                d
+      1 blob[3 B]
+      2      <NA>
+      3 blob[3 B]
+      4 blob[6 B]
+      5      <NA>
+
+# blob::blob to FIXED_LEN_BYTE_ARRAY
+
+    Code
+      as.data.frame(read_parquet_schema(tmp)[, -1])
+    Output
+        r_col   name r_type                 type type_length repetition_type
+      1    NA schema   <NA>                 <NA>          NA            <NA>
+      2     1      d   blob FIXED_LEN_BYTE_ARRAY           3        REQUIRED
+        converted_type logical_type num_children scale precision field_id children
+      1           <NA>                         1    NA        NA       NA         
+      2           <NA>                        NA    NA        NA       NA         
+    Code
+      as.data.frame(read_parquet(tmp))
+    Output
+                d
+      1 blob[3 B]
+      2 blob[3 B]
+      3 blob[3 B]
+
+---
+
+    Code
+      as.data.frame(read_parquet_schema(tmp)[, -1])
+    Output
+        r_col   name r_type                 type type_length repetition_type
+      1    NA schema   <NA>                 <NA>          NA            <NA>
+      2     1      d   blob FIXED_LEN_BYTE_ARRAY           3        OPTIONAL
+        converted_type logical_type num_children scale precision field_id children
+      1           <NA>                         1    NA        NA       NA         
+      2           <NA>                        NA    NA        NA       NA         
+    Code
+      as.data.frame(read_parquet(tmp))
+    Output
+                d
+      1 blob[3 B]
+      2      <NA>
+      3 blob[3 B]
+      4 blob[3 B]
+      5      <NA>
 

@@ -321,8 +321,10 @@ void ParquetReader::read_column_chunk_int(ColumnChunk &cc) {
   BufferGuard tmp_buf_g = bufman_cc->claim();
   ByteBuffer &tmp_buf = tmp_buf_g.buf;
   tmp_buf.resize(cmd.total_compressed_size, false);
-  pfile.seekg(chunk_start, ios_base::beg);
-  pfile.read(tmp_buf.ptr, cmd.total_compressed_size);
+  if (cmd.total_compressed_size > 0) {
+    pfile.seekg(chunk_start, ios_base::beg);
+    pfile.read(tmp_buf.ptr, cmd.total_compressed_size);
+  }
   uint8_t *ptr = (uint8_t*) tmp_buf.ptr;
   uint8_t *end = ptr + cmd.total_compressed_size;
 
@@ -333,7 +335,7 @@ void ParquetReader::read_column_chunk_int(ColumnChunk &cc) {
   // Sadly, this means that we are parsing the header of the first data
   // page twice, for files that adhere to the spec and don't have dict
   // pages. :((
-  if (!cc.has_dictionary) {
+  if (!cc.has_dictionary && ptr < end) {
     PageHeader dph;
     uint32_t ph_size = cmd.total_compressed_size;
     thrift_unpack(ptr, &ph_size, &dph, filename_);

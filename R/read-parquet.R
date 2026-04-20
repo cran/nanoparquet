@@ -72,6 +72,15 @@ read_parquet <- function(file, col_select = NULL, options = parquet_options()) {
     stopifnot(all(col_select >= 1L))
   }
 
+  if (
+    options[["read_int64_type"]] != "double" &&
+      !requireNamespace("bit64", quietly = TRUE)
+  ) {
+    stop(
+      "The bit64 package is required when `read_int64_type` is not \"double\".\n"
+    )
+  }
+
   res <- .Call(nanoparquet_read2, file, options, col_select, sys.call())
   post_process_read_result(res, file, options, col_select)
 }
@@ -141,6 +150,12 @@ post_process_read_result <- function(res, file, options, col_select) {
         )
       }
     }
+  }
+
+  # add ptype attribute to blob columns for vctrs compatibility
+  blobs <- which(vapply(res, "inherits", "blob", FUN.VALUE = logical(1)))
+  for (idx in blobs) {
+    attr(res[[idx]], "ptype") <- raw()
   }
 
   # convert hms from milliseconds to seconds, also integer -> double
